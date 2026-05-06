@@ -1087,7 +1087,7 @@ describe("host-hook fixture plugin contract", () => {
             id: first.id,
             sessionKey: "agent:main:main",
           });
-          const stored = loadSessionStore(storePath, { skipCache: true });
+          const stored = loadSessionStore(storePath);
           expect(
             stored["agent:main:main"]?.pluginNextTurnInjections?.["approval-fixture"],
           ).toHaveLength(1);
@@ -1193,7 +1193,7 @@ describe("host-hook fixture plugin contract", () => {
               text: "active prompt contribution",
             }),
           ]);
-          const stored = loadSessionStore(storePath, { skipCache: true });
+          const stored = loadSessionStore(storePath);
           expect(stored["agent:main:main"]?.pluginNextTurnInjections).toBeUndefined();
         },
       });
@@ -2171,7 +2171,7 @@ describe("host-hook fixture plugin contract", () => {
             }),
           ).resolves.toMatchObject({ failures: [] });
 
-          const stored = loadSessionStore(storePath, { skipCache: true });
+          const stored = loadSessionStore(storePath);
           expect(stored["agent:main:main"]).toEqual(
             expect.objectContaining({
               pluginExtensions: {
@@ -2321,7 +2321,7 @@ describe("host-hook fixture plugin contract", () => {
             }),
           ).resolves.toMatchObject({ failures: [] });
 
-          const stored = loadSessionStore(storePath, { skipCache: true });
+          const stored = loadSessionStore(storePath);
           expect(stored["agent:main:main"]?.pluginExtensions).toEqual({
             "restart-state-fixture": { workflow: { state: "waiting" } },
           });
@@ -2397,7 +2397,7 @@ describe("host-hook fixture plugin contract", () => {
             }),
           ).resolves.toMatchObject({ failures: [] });
 
-          const stored = loadSessionStore(storePath, { skipCache: true });
+          const stored = loadSessionStore(storePath);
           expect(stored["agent:main:main"]?.pluginNextTurnInjections).toBeUndefined();
         },
       });
