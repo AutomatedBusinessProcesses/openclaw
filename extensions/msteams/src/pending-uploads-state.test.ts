@@ -28,7 +28,7 @@ function makeEnv(stateDir: string): NodeJS.ProcessEnv {
 }
 
 async function requirePendingUpload(id: string, env: NodeJS.ProcessEnv) {
-  const upload = await getPendingUploadFs(id, { env });
+  const upload = await getPendingUploadState(id, { env });
   if (!upload) {
     throw new Error(`expected pending upload ${id}`);
   }
