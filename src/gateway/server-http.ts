@@ -605,6 +605,13 @@ export function createGatewayHttpServer(opts: {
         }),
       );
 
+      // Gateway probes must stay ahead of the Control UI SPA catch-all, or
+      // root-mounted Control UI will swallow /healthz and /readyz with index.html.
+      requestStages.push({
+        name: "gateway-probes",
+        run: () => handleGatewayProbeRequest(req, res, requestPath),
+      });
+
       if (controlUiEnabled) {
         requestStages.push({
           name: "control-ui-avatar",
@@ -624,11 +631,6 @@ export function createGatewayHttpServer(opts: {
             }),
         });
       }
-
-      requestStages.push({
-        name: "gateway-probes",
-        run: () => handleGatewayProbeRequest(req, res, requestPath),
-      });
 
       if (await runGatewayHttpRequestStages(requestStages)) {
         return;

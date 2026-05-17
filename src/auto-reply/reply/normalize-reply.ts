@@ -17,6 +17,7 @@ export type NormalizeReplySkipReason = "empty" | "silent" | "heartbeat";
 
 export type NormalizeReplyOptions = {
   responsePrefix?: string;
+  responseSuffix?: string;
   /** Context for template variable interpolation in responsePrefix */
   responsePrefixContext?: ResponsePrefixContext;
   onHeartbeatStrip?: () => void;
@@ -24,6 +25,17 @@ export type NormalizeReplyOptions = {
   silentToken?: string;
   onSkip?: (reason: NormalizeReplySkipReason) => void;
 };
+
+export function appendResponseSuffix(text: string, responseSuffix?: string): string {
+  if (!responseSuffix || !text) {
+    return text;
+  }
+  const trimmedSuffix = responseSuffix.trim();
+  if (!trimmedSuffix || text.trimEnd().endsWith(trimmedSuffix)) {
+    return text;
+  }
+  return `${text.trimEnd()}${responseSuffix}`;
+}
 
 export function normalizeReplyPayload(
   payload: ReplyPayload,
@@ -104,6 +116,8 @@ export function normalizeReplyPayload(
   ) {
     text = `${effectivePrefix} ${text}`;
   }
+
+  text = text ? appendResponseSuffix(text, opts.responseSuffix) : text;
 
   return { ...enrichedPayload, text };
 }

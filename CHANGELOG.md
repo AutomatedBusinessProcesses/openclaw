@@ -2,6 +2,14 @@
 
 Docs: https://docs.openclaw.ai
 
+## 2026.5.17
+
+### Changes
+
+- Telegram/model control: reload Telegram routing config at message and native-command execution time so menubar model changes take effect on the next Telegram run without relying on a gateway restart.
+- Telegram/reliability: make configured response suffixes and ack reactions host-enforced across the main Telegram reply paths, including direct delivery fallbacks and Telegram send-message tools.
+- Telegram/model receipts: collapse model-change receipts into concise “Model active” notices so the operator can verify the live route before the model runs.
+
 ## 2026.3.2
 
 ### Changes

@@ -43,6 +43,8 @@ function getHumanDelay(config: HumanDelayConfig | undefined): number {
 export type ReplyDispatcherOptions = {
   deliver: ReplyDispatchDeliverer;
   responsePrefix?: string;
+  /** Suffix appended only to final user-visible replies. */
+  responseSuffix?: string;
   /** Static context for response prefix template interpolation. */
   responsePrefixContext?: ResponsePrefixContext;
   /** Dynamic context provider for response prefix template interpolation.
@@ -82,8 +84,13 @@ export type ReplyDispatcher = {
 
 type NormalizeReplyPayloadInternalOptions = Pick<
   ReplyDispatcherOptions,
-  "responsePrefix" | "responsePrefixContext" | "responsePrefixContextProvider" | "onHeartbeatStrip"
+  | "responsePrefix"
+  | "responseSuffix"
+  | "responsePrefixContext"
+  | "responsePrefixContextProvider"
+  | "onHeartbeatStrip"
 > & {
+  kind: ReplyDispatchKind;
   onSkip?: (reason: NormalizeReplySkipReason) => void;
 };
 
@@ -96,6 +103,7 @@ function normalizeReplyPayloadInternal(
 
   return normalizeReplyPayload(payload, {
     responsePrefix: opts.responsePrefix,
+    responseSuffix: opts.kind === "final" ? opts.responseSuffix : undefined,
     responsePrefixContext: prefixContext,
     onHeartbeatStrip: opts.onHeartbeatStrip,
     onSkip: opts.onSkip,
@@ -127,9 +135,11 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
   const enqueue = (kind: ReplyDispatchKind, payload: ReplyPayload) => {
     const normalized = normalizeReplyPayloadInternal(payload, {
       responsePrefix: options.responsePrefix,
+      responseSuffix: options.responseSuffix,
       responsePrefixContext: options.responsePrefixContext,
       responsePrefixContextProvider: options.responsePrefixContextProvider,
       onHeartbeatStrip: options.onHeartbeatStrip,
+      kind,
       onSkip: (reason) => options.onSkip?.(payload, { kind, reason }),
     });
     if (!normalized) {

@@ -274,6 +274,7 @@ export async function createModelSelectionState(params: {
   provider: string;
   model: string;
   hasModelDirective: boolean;
+  ignoreStoredModelOverride?: boolean;
   /** True when heartbeat.model was explicitly resolved for this run.
    *  In that case, skip session-stored overrides so the heartbeat selection wins. */
   hasResolvedHeartbeatModelOverride?: boolean;
@@ -294,12 +295,15 @@ export async function createModelSelectionState(params: {
   let model = params.model;
 
   const hasAllowlist = agentCfg?.models && Object.keys(agentCfg.models).length > 0;
-  const initialStoredOverride = resolveStoredModelOverride({
-    sessionEntry,
-    sessionStore,
-    sessionKey,
-    parentSessionKey,
-  });
+  const ignoreStoredModelOverride = params.ignoreStoredModelOverride === true;
+  const initialStoredOverride = ignoreStoredModelOverride
+    ? null
+    : resolveStoredModelOverride({
+        sessionEntry,
+        sessionStore,
+        sessionKey,
+        parentSessionKey,
+      });
   const hasStoredOverride = Boolean(initialStoredOverride);
   const needsModelCatalog = params.hasModelDirective || hasAllowlist || hasStoredOverride;
 
@@ -343,12 +347,14 @@ export async function createModelSelectionState(params: {
     }
   }
 
-  const storedOverride = resolveStoredModelOverride({
-    sessionEntry,
-    sessionStore,
-    sessionKey,
-    parentSessionKey,
-  });
+  const storedOverride = ignoreStoredModelOverride
+    ? null
+    : resolveStoredModelOverride({
+        sessionEntry,
+        sessionStore,
+        sessionKey,
+        parentSessionKey,
+      });
   // Skip stored session model override only when an explicit heartbeat.model
   // was resolved. Heartbeat runs without heartbeat.model should still inherit
   // the regular session/parent model override behavior.

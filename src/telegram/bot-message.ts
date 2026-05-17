@@ -1,5 +1,5 @@
 import type { ReplyToMode } from "../config/config.js";
-import type { TelegramAccountConfig } from "../config/types.telegram.js";
+import type { DmPolicy, OpenClawConfig, TelegramAccountConfig } from "../config/types.js";
 import type { RuntimeEnv } from "../runtime.js";
 import {
   buildTelegramMessageContext,
@@ -11,6 +11,20 @@ import type { TelegramBotOptions } from "./bot.js";
 import type { TelegramContext, TelegramStreamMode } from "./bot/types.js";
 
 /** Dependencies injected once when creating the message processor. */
+export type TelegramMessageRuntimeState = {
+  cfg: OpenClawConfig;
+  account: { accountId: string };
+  telegramCfg: TelegramAccountConfig;
+  historyLimit: number;
+  dmPolicy: DmPolicy;
+  allowFrom?: Array<string | number>;
+  groupAllowFrom?: Array<string | number>;
+  ackReactionScope: "off" | "none" | "group-mentions" | "group-all" | "direct" | "all";
+  replyToMode: ReplyToMode;
+  streamMode: TelegramStreamMode;
+  textLimit: number;
+};
+
 type TelegramMessageProcessorDeps = Omit<
   BuildTelegramMessageContextParams,
   "primaryCtx" | "allMedia" | "storeAllowFrom" | "options"
@@ -21,6 +35,7 @@ type TelegramMessageProcessorDeps = Omit<
   streamMode: TelegramStreamMode;
   textLimit: number;
   opts: Pick<TelegramBotOptions, "token">;
+  resolveMessageRuntimeState?: () => TelegramMessageRuntimeState;
 };
 
 export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDeps) => {
@@ -45,6 +60,7 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
     streamMode,
     textLimit,
     opts,
+    resolveMessageRuntimeState,
   } = deps;
 
   return async (
@@ -54,6 +70,19 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
     options?: { messageIdOverride?: string; forceWasMentioned?: boolean },
     replyMedia?: TelegramMediaRef[],
   ) => {
+    const runtimeState = resolveMessageRuntimeState?.() ?? {
+      cfg,
+      account,
+      telegramCfg,
+      historyLimit,
+      dmPolicy,
+      allowFrom,
+      groupAllowFrom,
+      ackReactionScope,
+      replyToMode,
+      streamMode,
+      textLimit,
+    };
     const context = await buildTelegramMessageContext({
       primaryCtx,
       allMedia,
@@ -61,14 +90,14 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
       storeAllowFrom,
       options,
       bot,
-      cfg,
-      account,
-      historyLimit,
+      cfg: runtimeState.cfg,
+      account: runtimeState.account,
+      historyLimit: runtimeState.historyLimit,
       groupHistories,
-      dmPolicy,
-      allowFrom,
-      groupAllowFrom,
-      ackReactionScope,
+      dmPolicy: runtimeState.dmPolicy,
+      allowFrom: runtimeState.allowFrom,
+      groupAllowFrom: runtimeState.groupAllowFrom,
+      ackReactionScope: runtimeState.ackReactionScope,
       logger,
       resolveGroupActivation,
       resolveGroupRequireMention,
@@ -81,12 +110,12 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
     await dispatchTelegramMessage({
       context,
       bot,
-      cfg,
+      cfg: runtimeState.cfg,
       runtime,
-      replyToMode,
-      streamMode,
-      textLimit,
-      telegramCfg,
+      replyToMode: runtimeState.replyToMode,
+      streamMode: runtimeState.streamMode,
+      textLimit: runtimeState.textLimit,
+      telegramCfg: runtimeState.telegramCfg,
       opts,
     });
   };

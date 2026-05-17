@@ -1,22 +1,16 @@
 import type { Message, ReactionTypeEmoji } from "@grammyjs/types";
-import { resolveAgentDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import {
   createInboundDebouncer,
   resolveInboundDebounceMs,
 } from "../auto-reply/inbound-debounce.js";
 import { buildCommandsPaginationKeyboard } from "../auto-reply/reply/commands-info.js";
-import {
-  buildModelsProviderData,
-  formatModelsAvailableHeader,
-} from "../auto-reply/reply/commands-models.js";
-import { resolveStoredModelOverride } from "../auto-reply/reply/model-selection.js";
 import { listSkillCommandsForAgents } from "../auto-reply/skill-commands.js";
 import { buildCommandsMessagePaginated } from "../auto-reply/status.js";
 import { shouldDebounceTextInbound } from "../channels/inbound-debounce-policy.js";
 import { resolveChannelConfigWrites } from "../channels/plugins/config-writes.js";
 import { loadConfig } from "../config/config.js";
 import { writeConfigFile } from "../config/io.js";
-import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
 import type { DmPolicy } from "../config/types.base.js";
 import type {
   TelegramDirectConfig,
@@ -28,7 +22,6 @@ import { enqueueSystemEvent } from "../infra/system-events.js";
 import { MediaFetchError } from "../media/fetch.js";
 import { readChannelAllowFromStore } from "../pairing/pairing-store.js";
 import { resolveAgentRoute } from "../routing/resolve-route.js";
-import { resolveThreadSessionKeys } from "../routing/session-key.js";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import {
   isSenderAllowed,
@@ -57,15 +50,7 @@ import {
 } from "./group-access.js";
 import { migrateTelegramGroupConfig } from "./group-migration.js";
 import { resolveTelegramInlineButtonsScope } from "./inline-buttons.js";
-import {
-  buildModelsKeyboard,
-  buildProviderKeyboard,
-  calculateTotalPages,
-  getModelsPageSize,
-  parseModelCallbackData,
-  resolveModelSelection,
-  type ProviderInfo,
-} from "./model-buttons.js";
+import { parseModelCallbackData } from "./model-buttons.js";
 import { buildInlineKeyboard } from "./send.js";
 import { wasSentByBot } from "./sent-message-cache.js";
 
@@ -259,82 +244,6 @@ export const registerTelegramHandlers = ({
       runtime.error?.(danger(`telegram debounce flush failed: ${String(err)}`));
     },
   });
-
-  const resolveTelegramSessionState = (params: {
-    chatId: number | string;
-    isGroup: boolean;
-    isForum: boolean;
-    messageThreadId?: number;
-    resolvedThreadId?: number;
-  }): {
-    agentId: string;
-    sessionEntry: ReturnType<typeof loadSessionStore>[string];
-    model?: string;
-  } => {
-    const resolvedThreadId =
-      params.resolvedThreadId ??
-      resolveTelegramForumThreadId({
-        isForum: params.isForum,
-        messageThreadId: params.messageThreadId,
-      });
-    const peerId = params.isGroup
-      ? buildTelegramGroupPeerId(params.chatId, resolvedThreadId)
-      : String(params.chatId);
-    const parentPeer = buildTelegramParentPeer({
-      isGroup: params.isGroup,
-      resolvedThreadId,
-      chatId: params.chatId,
-    });
-    const route = resolveAgentRoute({
-      cfg,
-      channel: "telegram",
-      accountId,
-      peer: {
-        kind: params.isGroup ? "group" : "direct",
-        id: peerId,
-      },
-      parentPeer,
-    });
-    const baseSessionKey = route.sessionKey;
-    const dmThreadId = !params.isGroup ? params.messageThreadId : undefined;
-    const threadKeys =
-      dmThreadId != null
-        ? resolveThreadSessionKeys({ baseSessionKey, threadId: `${params.chatId}:${dmThreadId}` })
-        : null;
-    const sessionKey = threadKeys?.sessionKey ?? baseSessionKey;
-    const storePath = resolveStorePath(cfg.session?.store, { agentId: route.agentId });
-    const store = loadSessionStore(storePath);
-    const entry = store[sessionKey];
-    const storedOverride = resolveStoredModelOverride({
-      sessionEntry: entry,
-      sessionStore: store,
-      sessionKey,
-    });
-    if (storedOverride) {
-      return {
-        agentId: route.agentId,
-        sessionEntry: entry,
-        model: storedOverride.provider
-          ? `${storedOverride.provider}/${storedOverride.model}`
-          : storedOverride.model,
-      };
-    }
-    const provider = entry?.modelProvider?.trim();
-    const model = entry?.model?.trim();
-    if (provider && model) {
-      return {
-        agentId: route.agentId,
-        sessionEntry: entry,
-        model: `${provider}/${model}`,
-      };
-    }
-    const modelCfg = cfg.agents?.defaults?.model;
-    return {
-      agentId: route.agentId,
-      sessionEntry: entry,
-      model: typeof modelCfg === "string" ? modelCfg : modelCfg?.primary,
-    };
-  };
 
   const processMediaGroup = async (entry: MediaGroupEntry) => {
     try {
@@ -1065,24 +974,6 @@ export const registerTelegramHandlers = ({
           params,
         );
       };
-      const deleteCallbackMessage = async () => {
-        const deleteFn = (ctx as { deleteMessage?: unknown }).deleteMessage;
-        if (typeof deleteFn === "function") {
-          return await ctx.deleteMessage();
-        }
-        return await bot.api.deleteMessage(callbackMessage.chat.id, callbackMessage.message_id);
-      };
-      const replyToCallbackChat = async (
-        text: string,
-        params?: Parameters<typeof bot.api.sendMessage>[2],
-      ) => {
-        const replyFn = (ctx as { reply?: unknown }).reply;
-        if (typeof replyFn === "function") {
-          return await ctx.reply(text, params);
-        }
-        return await bot.api.sendMessage(callbackMessage.chat.id, text, params);
-      };
-
       const inlineButtonsScope = resolveTelegramInlineButtonsScope({
         cfg,
         accountId,
@@ -1109,7 +1000,7 @@ export const registerTelegramHandlers = ({
         isForum,
         messageThreadId,
       });
-      const { resolvedThreadId, dmThreadId, storeAllowFrom, groupConfig } = eventAuthContext;
+      const { dmThreadId, storeAllowFrom, groupConfig } = eventAuthContext;
       const requireTopic = (groupConfig as { requireTopic?: boolean } | undefined)?.requireTopic;
       if (!isGroup && requireTopic === true && dmThreadId == null) {
         logVerbose(
@@ -1177,124 +1068,9 @@ export const registerTelegramHandlers = ({
       // Model selection callback handler (mdl_prov, mdl_list_*, mdl_sel_*, mdl_back)
       const modelCallback = parseModelCallbackData(data);
       if (modelCallback) {
-        const modelData = await buildModelsProviderData(cfg);
-        const { byProvider, providers } = modelData;
-
-        const editMessageWithButtons = async (
-          text: string,
-          buttons: ReturnType<typeof buildProviderKeyboard>,
-        ) => {
-          const keyboard = buildInlineKeyboard(buttons);
-          try {
-            await editCallbackMessage(text, keyboard ? { reply_markup: keyboard } : undefined);
-          } catch (editErr) {
-            const errStr = String(editErr);
-            if (errStr.includes("no text in the message")) {
-              try {
-                await deleteCallbackMessage();
-              } catch {}
-              await replyToCallbackChat(text, keyboard ? { reply_markup: keyboard } : undefined);
-            } else if (!errStr.includes("message is not modified")) {
-              throw editErr;
-            }
-          }
-        };
-
-        if (modelCallback.type === "providers" || modelCallback.type === "back") {
-          if (providers.length === 0) {
-            await editMessageWithButtons("No providers available.", []);
-            return;
-          }
-          const providerInfos: ProviderInfo[] = providers.map((p) => ({
-            id: p,
-            count: byProvider.get(p)?.size ?? 0,
-          }));
-          const buttons = buildProviderKeyboard(providerInfos);
-          await editMessageWithButtons("Select a provider:", buttons);
-          return;
-        }
-
-        if (modelCallback.type === "list") {
-          const { provider, page } = modelCallback;
-          const modelSet = byProvider.get(provider);
-          if (!modelSet || modelSet.size === 0) {
-            // Provider not found or no models - show providers list
-            const providerInfos: ProviderInfo[] = providers.map((p) => ({
-              id: p,
-              count: byProvider.get(p)?.size ?? 0,
-            }));
-            const buttons = buildProviderKeyboard(providerInfos);
-            await editMessageWithButtons(
-              `Unknown provider: ${provider}\n\nSelect a provider:`,
-              buttons,
-            );
-            return;
-          }
-          const models = [...modelSet].toSorted();
-          const pageSize = getModelsPageSize();
-          const totalPages = calculateTotalPages(models.length, pageSize);
-          const safePage = Math.max(1, Math.min(page, totalPages));
-
-          // Resolve current model from session (prefer overrides)
-          const sessionState = resolveTelegramSessionState({
-            chatId,
-            isGroup,
-            isForum,
-            messageThreadId,
-            resolvedThreadId,
-          });
-          const currentModel = sessionState.model;
-
-          const buttons = buildModelsKeyboard({
-            provider,
-            models,
-            currentModel,
-            currentPage: safePage,
-            totalPages,
-            pageSize,
-          });
-          const text = formatModelsAvailableHeader({
-            provider,
-            total: models.length,
-            cfg,
-            agentDir: resolveAgentDir(cfg, sessionState.agentId),
-            sessionEntry: sessionState.sessionEntry,
-          });
-          await editMessageWithButtons(text, buttons);
-          return;
-        }
-
-        if (modelCallback.type === "select") {
-          const selection = resolveModelSelection({
-            callback: modelCallback,
-            providers,
-            byProvider,
-          });
-          if (selection.kind !== "resolved") {
-            const providerInfos: ProviderInfo[] = providers.map((p) => ({
-              id: p,
-              count: byProvider.get(p)?.size ?? 0,
-            }));
-            const buttons = buildProviderKeyboard(providerInfos);
-            await editMessageWithButtons(
-              `Could not resolve model "${selection.model}".\n\nSelect a provider:`,
-              buttons,
-            );
-            return;
-          }
-          // Process model selection as a synthetic message with /model command
-          const syntheticMessage = buildSyntheticTextMessage({
-            base: callbackMessage,
-            from: callback.from,
-            text: `/model ${selection.provider}/${selection.model}`,
-          });
-          await processMessage(buildSyntheticContext(ctx, syntheticMessage), [], storeAllowFrom, {
-            forceWasMentioned: true,
-            messageIdOverride: callback.id,
-          });
-          return;
-        }
-
+        await editCallbackMessage(
+          "Telegram model switching is controlled by the OpenClaw menubar. Use the menu bar Model Bank to switch DeepSeek Pro/Flash or activate a reserve model.",
+        );
         return;
       }
 

@@ -1,5 +1,6 @@
 import { type Bot, GrammyError, InputFile } from "grammy";
 import { chunkMarkdownTextWithMode, type ChunkMode } from "../../auto-reply/chunk.js";
+import { appendResponseSuffix } from "../../auto-reply/reply/normalize-reply.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import type { ReplyToMode } from "../../config/config.js";
 import type { MarkdownTableMode } from "../../config/types.base.js";
@@ -440,6 +441,8 @@ export async function deliverReplies(params: {
   linkPreview?: boolean;
   /** Optional quote text for Telegram reply_parameters. */
   replyQuoteText?: string;
+  /** Optional suffix for direct delivery paths that bypass the reply dispatcher. */
+  responseSuffix?: string;
 }): Promise<{ delivered: boolean }> {
   const progress: DeliveryProgress = {
     hasReplied: false,
@@ -460,14 +463,20 @@ export async function deliverReplies(params: {
       params.runtime.error?.(danger("reply missing text/media"));
       continue;
     }
+    const textWithSuffix =
+      reply.text && params.responseSuffix
+        ? appendResponseSuffix(reply.text, params.responseSuffix)
+        : reply.text;
+    const deliveryReply =
+      textWithSuffix === reply.text ? reply : { ...reply, text: textWithSuffix };
     const replyToId =
-      params.replyToMode === "off" ? undefined : resolveTelegramReplyId(reply.replyToId);
-    const mediaList = reply.mediaUrls?.length
-      ? reply.mediaUrls
-      : reply.mediaUrl
-        ? [reply.mediaUrl]
+      params.replyToMode === "off" ? undefined : resolveTelegramReplyId(deliveryReply.replyToId);
+    const mediaList = deliveryReply.mediaUrls?.length
+      ? deliveryReply.mediaUrls
+      : deliveryReply.mediaUrl
+        ? [deliveryReply.mediaUrl]
         : [];
-    const telegramData = reply.channelData?.telegram as
+    const telegramData = deliveryReply.channelData?.telegram as
       | { buttons?: TelegramInlineButtons }
       | undefined;
     const replyMarkup = buildInlineKeyboard(telegramData?.buttons);
@@ -478,7 +487,7 @@ export async function deliverReplies(params: {
         runtime: params.runtime,
         thread: params.thread,
         chunkText,
-        replyText: reply.text || "",
+        replyText: deliveryReply.text || "",
         replyMarkup,
         replyQuoteText: params.replyQuoteText,
         linkPreview: params.linkPreview,
@@ -489,7 +498,7 @@ export async function deliverReplies(params: {
       continue;
     }
     await deliverMediaReply({
-      reply,
+      reply: deliveryReply,
       mediaList,
       bot: params.bot,
       chatId: params.chatId,

@@ -102,6 +102,16 @@ export async function applyInlineDirectiveOverrides(params: {
   let { directives } = params;
   let { provider, model } = params;
   let { contextTokens } = params;
+  const menubarControlledModel = messageProviderKey === "telegram";
+  if (menubarControlledModel && directives.hasModelDirective) {
+    typing.cleanup();
+    return {
+      kind: "reply",
+      reply: {
+        text: "Telegram model switching is controlled by the OpenClaw menubar. Use the menu bar Model Bank to switch DeepSeek Pro/Flash or activate a reserve model.",
+      },
+    };
+  }
   const directiveModelState = {
     allowedModelKeys: modelState.allowedModelKeys,
     allowedModelCatalog: modelState.allowedModelCatalog,

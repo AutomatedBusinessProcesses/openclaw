@@ -24,7 +24,7 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { createNonExitingRuntime, type RuntimeEnv } from "../runtime.js";
 import { resolveTelegramAccount } from "./accounts.js";
 import { registerTelegramHandlers } from "./bot-handlers.js";
-import { createTelegramMessageProcessor } from "./bot-message.js";
+import { createTelegramMessageProcessor, type TelegramMessageRuntimeState } from "./bot-message.js";
 import { registerTelegramNativeCommands } from "./bot-native-commands.js";
 import {
   buildTelegramUpdateKey,
@@ -68,6 +68,42 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     accountId: opts.accountId,
   });
   const telegramCfg = account.config;
+  const loadActiveConfig = () => opts.config ?? loadConfig();
+  const resolveActiveAccount = (activeCfg: OpenClawConfig) =>
+    resolveTelegramAccount({
+      cfg: activeCfg,
+      accountId: account.accountId,
+    });
+  const resolveMessageRuntimeState = (): TelegramMessageRuntimeState => {
+    const activeCfg = loadActiveConfig();
+    const activeAccount = resolveActiveAccount(activeCfg);
+    const activeTelegramCfg = activeAccount.config;
+    const activeHistoryLimit = Math.max(
+      0,
+      activeTelegramCfg.historyLimit ??
+        activeCfg.messages?.groupChat?.historyLimit ??
+        DEFAULT_GROUP_HISTORY_LIMIT,
+    );
+    const activeAllowFrom = opts.allowFrom ?? activeTelegramCfg.allowFrom;
+    const activeGroupAllowFrom =
+      opts.groupAllowFrom ??
+      activeTelegramCfg.groupAllowFrom ??
+      activeTelegramCfg.allowFrom ??
+      activeAllowFrom;
+    return {
+      cfg: activeCfg,
+      account: { accountId: activeAccount.accountId },
+      telegramCfg: activeTelegramCfg,
+      historyLimit: activeHistoryLimit,
+      dmPolicy: activeTelegramCfg.dmPolicy ?? "pairing",
+      allowFrom: activeAllowFrom,
+      groupAllowFrom: activeGroupAllowFrom,
+      ackReactionScope: activeCfg.messages?.ackReactionScope ?? "group-mentions",
+      replyToMode: opts.replyToMode ?? activeTelegramCfg.replyToMode ?? "off",
+      streamMode: resolveTelegramStreamMode(activeTelegramCfg),
+      textLimit: resolveTextChunkLimit(activeCfg, "telegram", activeAccount.accountId),
+    };
+  };
 
   const fetchImpl = resolveTelegramFetch(opts.proxyFetch, {
     network: telegramCfg.network,
@@ -239,23 +275,28 @@ export function createTelegramBot(opts: TelegramBotOptions) {
   const logger = getChildLogger({ module: "telegram-auto-reply" });
   const streamMode = resolveTelegramStreamMode(telegramCfg);
   const resolveGroupPolicy = (chatId: string | number) =>
-    resolveChannelGroupPolicy({
-      cfg,
-      channel: "telegram",
-      accountId: account.accountId,
-      groupId: String(chatId),
-    });
+    (() => {
+      const activeCfg = loadActiveConfig();
+      const activeAccount = resolveActiveAccount(activeCfg);
+      return resolveChannelGroupPolicy({
+        cfg: activeCfg,
+        channel: "telegram",
+        accountId: activeAccount.accountId,
+        groupId: String(chatId),
+      });
+    })();
   const resolveGroupActivation = (params: {
     chatId: string | number;
     agentId?: string;
     messageThreadId?: number;
     sessionKey?: string;
   }) => {
-    const agentId = params.agentId ?? resolveDefaultAgentId(cfg);
+    const activeCfg = loadActiveConfig();
+    const agentId = params.agentId ?? resolveDefaultAgentId(activeCfg);
     const sessionKey =
       params.sessionKey ??
       `agent:${agentId}:telegram:group:${buildTelegramGroupPeerId(params.chatId, params.messageThreadId)}`;
-    const storePath = resolveStorePath(cfg.session?.store, { agentId });
+    const storePath = resolveStorePath(activeCfg.session?.store, { agentId });
     try {
       const store = loadSessionStore(storePath);
       const entry = store[sessionKey];
@@ -271,17 +312,23 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     return undefined;
   };
   const resolveGroupRequireMention = (chatId: string | number) =>
-    resolveChannelGroupRequireMention({
-      cfg,
-      channel: "telegram",
-      accountId: account.accountId,
-      groupId: String(chatId),
-      requireMentionOverride: opts.requireMention,
-      overrideOrder: "after-config",
-    });
+    (() => {
+      const activeCfg = loadActiveConfig();
+      const activeAccount = resolveActiveAccount(activeCfg);
+      return resolveChannelGroupRequireMention({
+        cfg: activeCfg,
+        channel: "telegram",
+        accountId: activeAccount.accountId,
+        groupId: String(chatId),
+        requireMentionOverride: opts.requireMention,
+        overrideOrder: "after-config",
+      });
+    })();
   const resolveTelegramGroupConfig = (chatId: string | number, messageThreadId?: number) => {
-    const groups = telegramCfg.groups;
-    const direct = telegramCfg.direct;
+    const activeCfg = loadActiveConfig();
+    const activeTelegramCfg = resolveActiveAccount(activeCfg).config;
+    const groups = activeTelegramCfg.groups;
+    const direct = activeTelegramCfg.direct;
     const chatIdStr = String(chatId);
     const isDm = !chatIdStr.startsWith("-");
 
@@ -340,6 +387,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     streamMode,
     textLimit,
     opts,
+    resolveMessageRuntimeState,
   });
 
   registerTelegramNativeCommands({
@@ -360,6 +408,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     resolveTelegramGroupConfig,
     shouldSkipUpdate,
     opts,
+    resolveMessageRuntimeState,
   });
 
   registerTelegramHandlers({

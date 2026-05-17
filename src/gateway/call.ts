@@ -153,7 +153,7 @@ export function buildGatewayConnectionDetails(
     ? undefined
     : (trimToUndefined(process.env.OPENCLAW_GATEWAY_URL) ??
       trimToUndefined(process.env.CLAWDBOT_GATEWAY_URL));
-  const urlOverride = cliUrlOverride ?? envUrlOverride;
+  const urlOverride = normalizeGatewayWebSocketUrl(cliUrlOverride ?? envUrlOverride);
   const remoteUrl =
     typeof remote?.url === "string" && remote.url.trim().length > 0 ? remote.url.trim() : undefined;
   const remoteMisconfigured = isRemoteMode && !urlOverride && !remoteUrl;
@@ -243,6 +243,26 @@ function trimToUndefined(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function normalizeGatewayWebSocketUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "http:") {
+      parsed.protocol = "ws:";
+      return parsed.toString();
+    }
+    if (parsed.protocol === "https:") {
+      parsed.protocol = "wss:";
+      return parsed.toString();
+    }
+  } catch {
+    return value;
+  }
+  return value;
+}
+
 function readGatewayTokenEnv(env: NodeJS.ProcessEnv): string | undefined {
   return trimToUndefined(env.OPENCLAW_GATEWAY_TOKEN) ?? trimToUndefined(env.CLAWDBOT_GATEWAY_TOKEN);
 }
@@ -276,7 +296,7 @@ function resolveGatewayCallContext(opts: CallGatewayBaseOptions): ResolvedGatewa
     ? undefined
     : (trimToUndefined(process.env.OPENCLAW_GATEWAY_URL) ??
       trimToUndefined(process.env.CLAWDBOT_GATEWAY_URL));
-  const urlOverride = cliUrlOverride ?? envUrlOverride;
+  const urlOverride = normalizeGatewayWebSocketUrl(cliUrlOverride ?? envUrlOverride);
   const urlOverrideSource = cliUrlOverride ? "cli" : envUrlOverride ? "env" : undefined;
   const remoteUrl = trimToUndefined(remote?.url);
   const explicitAuth = resolveExplicitGatewayAuth({ token: opts.token, password: opts.password });

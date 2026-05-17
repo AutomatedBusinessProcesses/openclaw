@@ -157,6 +157,18 @@ describe("gateway plugin HTTP auth boundary", () => {
     });
   });
 
+  test("serves probe routes before root-mounted control ui catch-all", async () => {
+    await withRootMountedControlUiServer({
+      prefix: "openclaw-plugin-http-probes-before-root-ui-test-",
+      handlePluginRequest: async () => false,
+      run: async (server) => {
+        const response = await sendRequest(server, { path: "/healthz" });
+        expect(response.res.statusCode).toBe(200);
+        expect(response.getBody()).toBe(JSON.stringify({ ok: true, status: "live" }));
+      },
+    });
+  });
+
   test("requires gateway auth for protected plugin route space and allows authenticated pass-through", async () => {
     const handlePluginRequest = vi.fn(async (req: IncomingMessage, res: ServerResponse) => {
       const pathname = new URL(req.url ?? "/", "http://localhost").pathname;

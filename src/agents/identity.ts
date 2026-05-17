@@ -132,6 +132,37 @@ export function resolveResponsePrefix(
   return undefined;
 }
 
+export function resolveResponseSuffix(
+  cfg: OpenClawConfig,
+  opts?: { channel?: string; accountId?: string },
+): string | undefined {
+  // L1: Channel account level
+  if (opts?.channel && opts?.accountId) {
+    const channelCfg = getChannelConfig(cfg, opts.channel);
+    const accounts = channelCfg?.accounts as Record<string, Record<string, unknown>> | undefined;
+    const accountSuffix = accounts?.[opts.accountId]?.responseSuffix as string | undefined;
+    if (accountSuffix !== undefined) {
+      return accountSuffix;
+    }
+  }
+
+  // L2: Channel level
+  if (opts?.channel) {
+    const channelCfg = getChannelConfig(cfg, opts.channel);
+    const channelSuffix = channelCfg?.responseSuffix as string | undefined;
+    if (channelSuffix !== undefined) {
+      return channelSuffix;
+    }
+  }
+
+  // L3: Global messages level
+  const configured = cfg.messages?.responseSuffix;
+  if (configured !== undefined) {
+    return configured;
+  }
+  return undefined;
+}
+
 export function resolveEffectiveMessagesConfig(
   cfg: OpenClawConfig,
   agentId: string,
@@ -141,13 +172,17 @@ export function resolveEffectiveMessagesConfig(
     channel?: string;
     accountId?: string;
   },
-): { messagePrefix: string; responsePrefix?: string } {
+): { messagePrefix: string; responsePrefix?: string; responseSuffix?: string } {
   return {
     messagePrefix: resolveMessagePrefix(cfg, agentId, {
       hasAllowFrom: opts?.hasAllowFrom,
       fallback: opts?.fallbackMessagePrefix,
     }),
     responsePrefix: resolveResponsePrefix(cfg, agentId, {
+      channel: opts?.channel,
+      accountId: opts?.accountId,
+    }),
+    responseSuffix: resolveResponseSuffix(cfg, {
       channel: opts?.channel,
       accountId: opts?.accountId,
     }),

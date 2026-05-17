@@ -45,6 +45,8 @@ export type CommonChannelMessagingConfig = {
   heartbeat?: ChannelHeartbeatVisibilityConfig;
   /** Outbound response prefix override for this channel/account. */
   responsePrefix?: string;
+  /** Outbound final response suffix override for this channel/account. */
+  responseSuffix?: string;
   /** Max outbound media size in MB. */
   mediaMaxMb?: number;
 };

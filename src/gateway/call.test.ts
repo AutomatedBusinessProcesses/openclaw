@@ -426,6 +426,46 @@ describe("buildGatewayConnectionDetails", () => {
     }
   });
 
+  it("normalizes browser-facing http gateway env URLs to ws URLs", () => {
+    loadConfig.mockReturnValue({ gateway: { mode: "local", bind: "loopback" } });
+    resolveGatewayPort.mockReturnValue(18800);
+    pickPrimaryTailnetIPv4.mockReturnValue(undefined);
+    const prevUrl = process.env.OPENCLAW_GATEWAY_URL;
+    try {
+      process.env.OPENCLAW_GATEWAY_URL = "http://localhost:18789";
+
+      const details = buildGatewayConnectionDetails();
+
+      expect(details.url).toBe("ws://localhost:18789/");
+      expect(details.urlSource).toBe("env OPENCLAW_GATEWAY_URL");
+      expect(details.bindDetail).toBeUndefined();
+    } finally {
+      if (prevUrl === undefined) {
+        delete process.env.OPENCLAW_GATEWAY_URL;
+      } else {
+        process.env.OPENCLAW_GATEWAY_URL = prevUrl;
+      }
+    }
+  });
+
+  it("still rejects browser-facing http gateway env URLs for remote hosts", () => {
+    loadConfig.mockReturnValue({ gateway: { mode: "local", bind: "loopback" } });
+    resolveGatewayPort.mockReturnValue(18800);
+    pickPrimaryTailnetIPv4.mockReturnValue(undefined);
+    const prevUrl = process.env.OPENCLAW_GATEWAY_URL;
+    try {
+      process.env.OPENCLAW_GATEWAY_URL = "http://remote.example.com:18789";
+
+      expect(() => buildGatewayConnectionDetails()).toThrow(/SECURITY ERROR/);
+    } finally {
+      if (prevUrl === undefined) {
+        delete process.env.OPENCLAW_GATEWAY_URL;
+      } else {
+        process.env.OPENCLAW_GATEWAY_URL = prevUrl;
+      }
+    }
+  });
+
   it("throws for insecure ws:// remote URLs (CWE-319)", () => {
     loadConfig.mockReturnValue({
       gateway: {

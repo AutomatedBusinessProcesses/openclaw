@@ -264,13 +264,14 @@ export function handleMessageEnd(
   promoteThinkingTagsToBlocks(assistantMessage);
 
   const rawText = extractAssistantText(assistantMessage);
+  const rawThinkingText = extractAssistantThinking(assistantMessage).trim();
   appendRawStream({
     ts: Date.now(),
     event: "assistant_message_end",
     runId: ctx.params.runId,
     sessionId: (ctx.params.session as { id?: string }).id,
     rawText,
-    rawThinking: extractAssistantThinking(assistantMessage),
+    rawThinking: rawThinkingText,
   });
 
   const text = resolveSilentReplyFallbackText({
@@ -279,7 +280,7 @@ export function handleMessageEnd(
   });
   const rawThinking =
     ctx.state.includeReasoning || ctx.state.streamReasoning
-      ? extractAssistantThinking(assistantMessage) || extractThinkingFromTaggedText(rawText)
+      ? rawThinkingText || extractThinkingFromTaggedText(rawText)
       : "";
   const formattedReasoning = rawThinking ? formatReasoningMessage(rawThinking) : "";
   const trimmedText = text.trim();
@@ -291,7 +292,16 @@ export function handleMessageEnd(
   if (!cleanedText && !hasMedia && !ctx.params.enforceFinalTag) {
     const rawTrimmed = rawText.trim();
     const rawStrippedFinal = rawTrimmed.replace(/<\s*\/?\s*final\s*>/gi, "").trim();
-    const rawCandidate = rawStrippedFinal || rawTrimmed;
+    const thinkingFallback =
+      !rawTrimmed &&
+      rawThinkingText &&
+      rawThinkingText.length <= 500 &&
+      !/\b(let me|i should|i need|i'll|the user|actually|looking at|first,|now,)\b/i.test(
+        rawThinkingText,
+      )
+        ? rawThinkingText
+        : "";
+    const rawCandidate = rawStrippedFinal || rawTrimmed || thinkingFallback;
     if (rawCandidate) {
       const parsedFallback = parseReplyDirectives(stripTrailingDirective(rawCandidate));
       cleanedText = parsedFallback.text ?? rawCandidate;

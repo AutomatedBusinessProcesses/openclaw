@@ -50,9 +50,12 @@ RUN if [ -n "$OPENCLAW_INSTALL_BROWSER" ]; then \
       apt-get update && \
       DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb && \
       mkdir -p /home/node/.cache/ms-playwright && \
+      mkdir -p /home/node/.local/bin && \
       PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \
       node /app/node_modules/playwright-core/cli.js install --with-deps chromium && \
-      chown -R node:node /home/node/.cache/ms-playwright && \
+      printf '%s\n' '#!/bin/sh' 'set -e' 'CHROME="$(find /home/node/.cache/ms-playwright -path "*/chrome-linux64/chrome" | head -n 1)"' 'if [ -z "$CHROME" ] || [ ! -x "$CHROME" ]; then' '  echo "chromium binary not found under /home/node/.cache/ms-playwright" >&2' '  exit 1' 'fi' 'exec "$CHROME" "$@"' > /home/node/.local/bin/chrome-wrapper.sh && \
+      chmod 755 /home/node/.local/bin/chrome-wrapper.sh && \
+      chown -R node:node /home/node/.cache/ms-playwright /home/node/.local && \
       apt-get clean && \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
@@ -88,6 +91,19 @@ RUN if [ -n "$OPENCLAW_INSTALL_DOCKER_CLI" ]; then \
       apt-get clean && \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
+
+RUN apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ffmpeg python3-pip python3-venv && \
+      python3 -m venv /opt/voice-capture && \
+      /opt/voice-capture/bin/pip install --no-cache-dir --upgrade pip setuptools wheel && \
+      /opt/voice-capture/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch && \
+      /opt/voice-capture/bin/pip install --no-cache-dir openai-whisper && \
+      ln -sf /opt/voice-capture/bin/whisper /usr/local/bin/whisper && \
+      apt-get clean && \
+      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+ENV PATH="/opt/voice-capture/bin:${PATH}"
 
 USER node
 COPY --chown=node:node . .

@@ -13,6 +13,9 @@ const deliverReplies = vi.hoisted(() => vi.fn());
 const editMessageTelegram = vi.hoisted(() => vi.fn());
 const loadSessionStore = vi.hoisted(() => vi.fn());
 const resolveStorePath = vi.hoisted(() => vi.fn(() => "/tmp/sessions.json"));
+const readPendingModelChangeReceipts = vi.hoisted(() => vi.fn());
+const acknowledgeModelChangeReceipts = vi.hoisted(() => vi.fn());
+const formatModelChangeReceiptNotice = vi.hoisted(() => vi.fn());
 
 vi.mock("./draft-stream.js", () => ({
   createTelegramDraftStream,
@@ -28,6 +31,12 @@ vi.mock("./bot/delivery.js", () => ({
 
 vi.mock("./send.js", () => ({
   editMessageTelegram,
+}));
+
+vi.mock("./model-change-receipts.js", () => ({
+  readPendingModelChangeReceipts,
+  acknowledgeModelChangeReceipts,
+  formatModelChangeReceiptNotice,
 }));
 
 vi.mock("../config/sessions.js", async () => ({
@@ -52,8 +61,13 @@ describe("dispatchTelegramMessage draft streaming", () => {
     editMessageTelegram.mockClear();
     loadSessionStore.mockClear();
     resolveStorePath.mockClear();
+    readPendingModelChangeReceipts.mockReset();
+    acknowledgeModelChangeReceipts.mockReset();
+    formatModelChangeReceiptNotice.mockReset();
     resolveStorePath.mockReturnValue("/tmp/sessions.json");
     loadSessionStore.mockReturnValue({});
+    readPendingModelChangeReceipts.mockResolvedValue([]);
+    formatModelChangeReceiptNotice.mockReturnValue("");
   });
 
   const createDraftStream = (messageId?: number) => createTestDraftStream({ messageId });
@@ -207,6 +221,33 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(draftStream.clear).toHaveBeenCalledTimes(1);
   });
 
+  it("sends a control-plane model receipt before the model reply", async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ message_id: 99 });
+    const bot = {
+      api: {
+        sendMessage,
+        editMessageText: vi.fn(),
+        deleteMessage: vi.fn().mockResolvedValue(true),
+      },
+    } as unknown as Bot;
+    const receipts = [{ id: "receipt-1", ref: "openrouter/deepseek/deepseek-v4-flash" }];
+    readPendingModelChangeReceipts.mockResolvedValue(receipts);
+    formatModelChangeReceiptNotice.mockReturnValue("OpenClaw model changed: Pro -> Flash");
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
+      await dispatcherOptions.deliver({ text: "Hello" }, { kind: "final" });
+      return { queuedFinal: true };
+    });
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext(), bot });
+
+    expect(sendMessage).toHaveBeenCalledWith(123, "OpenClaw model changed: Pro -> Flash", {
+      message_thread_id: 777,
+    });
+    expect(acknowledgeModelChangeReceipts).toHaveBeenCalledWith(["receipt-1"]);
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
+  });
+
   it("uses 30-char preview debounce for legacy block stream mode", async () => {
     const draftStream = createDraftStream();
     createTelegramDraftStream.mockReturnValue(draftStream);
@@ -341,6 +382,75 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
     expect(draftStream.clear).not.toHaveBeenCalled();
     expect(draftStream.stop).toHaveBeenCalled();
+  });
+
+  it("does not stream or flush silent-token lead fragments into Telegram previews", async () => {
+    const answerDraftStream = createDraftStream();
+    createTelegramDraftStream.mockReturnValue(answerDraftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onPartialReply?.({ text: "NO" });
+        await replyOptions?.onPartialReply?.({ text: "NO_" });
+        await replyOptions?.onPartialReply?.({ text: "NO_RE" });
+        await dispatcherOptions.deliver({ text: "NO_REPLY" }, { kind: "final" });
+        return { queuedFinal: false };
+      },
+    );
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext(), streamMode: "partial" });
+
+    expect(answerDraftStream.update).not.toHaveBeenCalled();
+    expect(editMessageTelegram).not.toHaveBeenCalled();
+    expect(deliverReplies).not.toHaveBeenCalled();
+    expect(answerDraftStream.stop).toHaveBeenCalledTimes(1);
+    expect(answerDraftStream.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not stream heartbeat-token lead fragments into Telegram previews", async () => {
+    const answerDraftStream = createDraftStream();
+    createTelegramDraftStream.mockReturnValue(answerDraftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onPartialReply?.({ text: "HEARTBEAT" });
+        await replyOptions?.onPartialReply?.({ text: "HEARTBEAT_" });
+        await replyOptions?.onPartialReply?.({ text: "HEARTBEAT_O" });
+        await dispatcherOptions.deliver({ text: "HEARTBEAT_OK" }, { kind: "final" });
+        return { queuedFinal: false };
+      },
+    );
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext(), streamMode: "partial" });
+
+    expect(answerDraftStream.update).not.toHaveBeenCalled();
+    expect(editMessageTelegram).not.toHaveBeenCalled();
+    expect(deliverReplies).not.toHaveBeenCalled();
+    expect(answerDraftStream.stop).toHaveBeenCalledTimes(1);
+    expect(answerDraftStream.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("still delivers a real final uppercase NO answer", async () => {
+    const answerDraftStream = createDraftStream();
+    createTelegramDraftStream.mockReturnValue(answerDraftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onPartialReply?.({ text: "NO" });
+        expect(answerDraftStream.update).not.toHaveBeenCalled();
+        await dispatcherOptions.deliver({ text: "NO" }, { kind: "final" });
+        return { queuedFinal: true };
+      },
+    );
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext(), streamMode: "partial" });
+
+    expect(answerDraftStream.update).toHaveBeenCalledWith("NO");
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [expect.objectContaining({ text: "NO" })],
+      }),
+    );
   });
 
   it("keeps streamed preview visible when final text regresses after a tool warning", async () => {

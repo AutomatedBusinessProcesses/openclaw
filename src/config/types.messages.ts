@@ -105,6 +105,14 @@ export type MessagesConfig = {
    * Default: none
    */
   responsePrefix?: string;
+  /**
+   * Suffix appended to final outbound assistant replies.
+   *
+   * Use for transport-level completion markers that must not rely on model
+   * compliance, for example `"\n\nEND"`. Silent and heartbeat control replies
+   * are not suffixed.
+   */
+  responseSuffix?: string;
   groupChat?: GroupChatConfig;
   queue?: QueueConfig;
   /** Debounce rapid inbound messages per sender (global + per-channel overrides). */

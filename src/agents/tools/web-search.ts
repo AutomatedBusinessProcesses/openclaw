@@ -21,7 +21,7 @@ import {
   writeCache,
 } from "./web-shared.js";
 
-const SEARCH_PROVIDERS = ["brave", "perplexity", "grok", "gemini", "kimi"] as const;
+const SEARCH_PROVIDERS = ["brave", "perplexity", "grok", "gemini", "kimi", "exa"] as const;
 const DEFAULT_SEARCH_COUNT = 5;
 const MAX_SEARCH_COUNT = 10;
 
@@ -40,6 +40,8 @@ const KIMI_WEB_SEARCH_TOOL = {
   type: "builtin_function",
   function: { name: "$web_search" },
 } as const;
+const DEFAULT_EXA_BASE_URL = "https://api.exa.ai";
+const DEFAULT_EXA_SEARCH_TYPE = "auto";
 
 const SEARCH_CACHE = new Map<string, CacheEntry<Record<string, unknown>>>();
 const BRAVE_FRESHNESS_SHORTCUTS = new Set(["pd", "pw", "pm", "py"]);
@@ -121,6 +123,21 @@ type KimiConfig = {
   model?: string;
 };
 
+type ExaSearchType =
+  | "neural"
+  | "fast"
+  | "auto"
+  | "deep-lite"
+  | "deep"
+  | "deep-reasoning"
+  | "instant";
+
+type ExaConfig = {
+  apiKey?: string;
+  baseUrl?: string;
+  type?: ExaSearchType;
+};
+
 type GrokSearchResponse = {
   output?: Array<{
     type?: string;
@@ -178,6 +195,24 @@ type KimiSearchResponse = {
     url?: string;
     content?: string;
   }>;
+};
+
+type ExaSearchResult = {
+  title?: string;
+  url?: string;
+  publishedDate?: string;
+  author?: string;
+  id?: string;
+  text?: string;
+  highlights?: string[];
+  highlightScores?: number[];
+  summary?: string;
+};
+
+type ExaSearchResponse = {
+  requestId?: string;
+  results?: ExaSearchResult[];
+  searchType?: string;
 };
 
 type PerplexitySearchResponse = {
@@ -329,6 +364,14 @@ function missingSearchKeyPayload(provider: (typeof SEARCH_PROVIDERS)[number]) {
       docs: "https://docs.openclaw.ai/tools/web",
     };
   }
+  if (provider === "exa") {
+    return {
+      error: "missing_exa_api_key",
+      message:
+        "web_search (exa) needs an Exa API key. Set EXA_API_KEY in the Gateway environment, or configure tools.web.search.exa.apiKey.",
+      docs: "https://docs.openclaw.ai/tools/exa-search",
+    };
+  }
   return {
     error: "missing_brave_api_key",
     message: `web_search needs a Brave Search API key. Run \`${formatCliCommand("openclaw configure --section web")}\` to store it, or set BRAVE_API_KEY in the Gateway environment.`,
@@ -352,6 +395,9 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
   }
   if (raw === "kimi") {
     return "kimi";
+  }
+  if (raw === "exa") {
+    return "exa";
   }
   if (raw === "brave") {
     return "brave";
@@ -382,7 +428,13 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
       );
       return "kimi";
     }
-    // 4. Perplexity
+    // 4. Exa
+    const exaConfig = resolveExaConfig(search);
+    if (resolveExaApiKey(exaConfig)) {
+      logVerbose('web_search: no provider configured, auto-detected "exa" from available API keys');
+      return "exa";
+    }
+    // 5. Perplexity
     const perplexityConfig = resolvePerplexityConfig(search);
     const { apiKey: perplexityKey } = resolvePerplexityApiKey(perplexityConfig);
     if (perplexityKey) {
@@ -391,7 +443,7 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
       );
       return "perplexity";
     }
-    // 5. Grok
+    // 6. Grok
     const grokConfig = resolveGrokConfig(search);
     if (resolveGrokApiKey(grokConfig)) {
       logVerbose(
@@ -576,6 +628,48 @@ function resolveKimiBaseUrl(kimi?: KimiConfig): string {
   const fromConfig =
     kimi && "baseUrl" in kimi && typeof kimi.baseUrl === "string" ? kimi.baseUrl.trim() : "";
   return fromConfig || DEFAULT_KIMI_BASE_URL;
+}
+
+function resolveExaConfig(search?: WebSearchConfig): ExaConfig {
+  if (!search || typeof search !== "object") {
+    return {};
+  }
+  const exa = "exa" in search ? search.exa : undefined;
+  if (!exa || typeof exa !== "object") {
+    return {};
+  }
+  return exa as ExaConfig;
+}
+
+function resolveExaApiKey(exa?: ExaConfig): string | undefined {
+  const fromConfig = normalizeApiKey(exa?.apiKey);
+  if (fromConfig) {
+    return fromConfig;
+  }
+  const fromEnv = normalizeApiKey(process.env.EXA_API_KEY);
+  return fromEnv || undefined;
+}
+
+function resolveExaBaseUrl(exa?: ExaConfig): string {
+  const fromConfig =
+    exa && "baseUrl" in exa && typeof exa.baseUrl === "string" ? exa.baseUrl.trim() : "";
+  return fromConfig || DEFAULT_EXA_BASE_URL;
+}
+
+function resolveExaType(exa?: ExaConfig): ExaSearchType {
+  const rawType = exa && "type" in exa && typeof exa.type === "string" ? exa.type.trim() : "";
+  if (
+    rawType === "neural" ||
+    rawType === "fast" ||
+    rawType === "auto" ||
+    rawType === "deep-lite" ||
+    rawType === "deep" ||
+    rawType === "deep-reasoning" ||
+    rawType === "instant"
+  ) {
+    return rawType;
+  }
+  return DEFAULT_EXA_SEARCH_TYPE;
 }
 
 function resolveGeminiConfig(search?: WebSearchConfig): GeminiConfig {
@@ -817,6 +911,26 @@ function freshnessToPerplexityRecency(freshness: string | undefined): string | u
     py: "year",
   };
   return map[freshness] ?? undefined;
+}
+
+function freshnessToExaStartCrawlDate(
+  freshness: string | undefined,
+  now = new Date(),
+): string | undefined {
+  if (!freshness) {
+    return undefined;
+  }
+  const daysByShortcut: Record<string, number> = {
+    pd: 1,
+    pw: 7,
+    pm: 31,
+    py: 366,
+  };
+  const days = daysByShortcut[freshness];
+  if (!days) {
+    return undefined;
+  }
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function isValidIsoDate(value: string): boolean {
@@ -1115,6 +1229,103 @@ async function runKimiSearch(params: {
   };
 }
 
+function pickExaDescription(entry: ExaSearchResult): string {
+  const highlights = (entry.highlights ?? [])
+    .map((item) => item?.trim())
+    .filter((item): item is string => Boolean(item));
+  if (highlights.length > 0) {
+    return highlights.join("\n");
+  }
+  const summary = entry.summary?.trim();
+  if (summary) {
+    return summary;
+  }
+  return entry.text?.trim() || "";
+}
+
+async function runExaSearch(params: {
+  query: string;
+  apiKey: string;
+  baseUrl: string;
+  type: ExaSearchType;
+  count: number;
+  timeoutSeconds: number;
+  freshness?: string;
+}): Promise<{
+  requestId?: string;
+  searchType?: string;
+  results: Array<{
+    title: string;
+    url: string;
+    description: string;
+    published?: string;
+    author?: string;
+    siteName?: string;
+    id?: string;
+    highlights?: string[];
+    highlightScores?: number[];
+    summary?: string;
+  }>;
+}> {
+  const baseUrl = params.baseUrl.trim().replace(/\/$/, "");
+  const body: Record<string, unknown> = {
+    query: params.query,
+    type: params.type,
+    numResults: params.count,
+    contents: {
+      highlights: true,
+    },
+  };
+  const startCrawlDate = freshnessToExaStartCrawlDate(params.freshness);
+  if (startCrawlDate) {
+    body.startCrawlDate = startCrawlDate;
+  }
+
+  return withTrustedWebSearchEndpoint(
+    {
+      url: `${baseUrl}/search`,
+      timeoutSeconds: params.timeoutSeconds,
+      init: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": params.apiKey,
+        },
+        body: JSON.stringify(body),
+      },
+    },
+    async (res) => {
+      if (!res.ok) {
+        return await throwWebSearchApiError(res, "Exa");
+      }
+
+      const data = (await res.json()) as ExaSearchResponse;
+      const results = Array.isArray(data.results) ? data.results : [];
+      return {
+        requestId: data.requestId,
+        searchType: data.searchType,
+        results: results.map((entry) => {
+          const title = entry.title ?? "";
+          const url = entry.url ?? "";
+          const description = pickExaDescription(entry);
+          return {
+            title: title ? wrapWebContent(title, "web_search") : "",
+            url,
+            description: description ? wrapWebContent(description, "web_search") : "",
+            published: entry.publishedDate || undefined,
+            author: entry.author || undefined,
+            siteName: resolveSiteName(url) || undefined,
+            id: entry.id || undefined,
+            highlights: entry.highlights,
+            highlightScores: entry.highlightScores,
+            summary: entry.summary,
+          };
+        }),
+      };
+    },
+  );
+}
+
 async function runWebSearch(params: {
   query: string;
   count: number;
@@ -1133,6 +1344,8 @@ async function runWebSearch(params: {
   geminiModel?: string;
   kimiBaseUrl?: string;
   kimiModel?: string;
+  exaBaseUrl?: string;
+  exaType?: ExaSearchType;
 }): Promise<Record<string, unknown>> {
   const cacheKey = normalizeCacheKey(
     params.provider === "brave"
@@ -1141,9 +1354,11 @@ async function runWebSearch(params: {
         ? `${params.provider}:${params.query}:${params.perplexityBaseUrl ?? DEFAULT_PERPLEXITY_BASE_URL}:${params.perplexityModel ?? DEFAULT_PERPLEXITY_MODEL}:${params.freshness || "default"}`
         : params.provider === "kimi"
           ? `${params.provider}:${params.query}:${params.kimiBaseUrl ?? DEFAULT_KIMI_BASE_URL}:${params.kimiModel ?? DEFAULT_KIMI_MODEL}`
-          : params.provider === "gemini"
-            ? `${params.provider}:${params.query}:${params.geminiModel ?? DEFAULT_GEMINI_MODEL}`
-            : `${params.provider}:${params.query}:${params.grokModel ?? DEFAULT_GROK_MODEL}:${String(params.grokInlineCitations ?? false)}`,
+          : params.provider === "exa"
+            ? `${params.provider}:${params.query}:${params.count}:${params.exaBaseUrl ?? DEFAULT_EXA_BASE_URL}:${params.exaType ?? DEFAULT_EXA_SEARCH_TYPE}:${params.freshness || "default"}`
+            : params.provider === "gemini"
+              ? `${params.provider}:${params.query}:${params.geminiModel ?? DEFAULT_GEMINI_MODEL}`
+              : `${params.provider}:${params.query}:${params.grokModel ?? DEFAULT_GROK_MODEL}:${String(params.grokInlineCitations ?? false)}`,
   );
   const cached = readCache(SEARCH_CACHE, cacheKey);
   if (cached) {
@@ -1261,6 +1476,37 @@ async function runWebSearch(params: {
     return payload;
   }
 
+  if (params.provider === "exa") {
+    const exaResult = await runExaSearch({
+      query: params.query,
+      apiKey: params.apiKey,
+      baseUrl: params.exaBaseUrl ?? DEFAULT_EXA_BASE_URL,
+      type: params.exaType ?? DEFAULT_EXA_SEARCH_TYPE,
+      count: params.count,
+      timeoutSeconds: params.timeoutSeconds,
+      freshness: params.freshness,
+    });
+
+    const payload = {
+      query: params.query,
+      provider: params.provider,
+      type: params.exaType ?? DEFAULT_EXA_SEARCH_TYPE,
+      searchType: exaResult.searchType,
+      requestId: exaResult.requestId,
+      count: exaResult.results.length,
+      tookMs: Date.now() - start,
+      externalContent: {
+        untrusted: true,
+        source: "web_search",
+        provider: params.provider,
+        wrapped: true,
+      },
+      results: exaResult.results,
+    };
+    writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
+    return payload;
+  }
+
   if (params.provider !== "brave") {
     throw new Error("Unsupported web search provider.");
   }
@@ -1349,6 +1595,7 @@ export function createWebSearchTool(options?: {
   const grokConfig = resolveGrokConfig(search);
   const geminiConfig = resolveGeminiConfig(search);
   const kimiConfig = resolveKimiConfig(search);
+  const exaConfig = resolveExaConfig(search);
 
   const description =
     provider === "perplexity"
@@ -1357,9 +1604,11 @@ export function createWebSearchTool(options?: {
         ? "Search the web using xAI Grok. Returns AI-synthesized answers with citations from real-time web search."
         : provider === "kimi"
           ? "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search."
-          : provider === "gemini"
-            ? "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search."
-            : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
+          : provider === "exa"
+            ? "Search the web using Exa. Returns structured URLs, titles, dates, authors, and relevance highlights for fast research."
+            : provider === "gemini"
+              ? "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search."
+              : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
 
   return {
     label: "Web Search",
@@ -1376,9 +1625,11 @@ export function createWebSearchTool(options?: {
             ? resolveGrokApiKey(grokConfig)
             : provider === "kimi"
               ? resolveKimiApiKey(kimiConfig)
-              : provider === "gemini"
-                ? resolveGeminiApiKey(geminiConfig)
-                : resolveSearchApiKey(search);
+              : provider === "exa"
+                ? resolveExaApiKey(exaConfig)
+                : provider === "gemini"
+                  ? resolveGeminiApiKey(geminiConfig)
+                  : resolveSearchApiKey(search);
 
       if (!apiKey) {
         return jsonResult(missingSearchKeyPayload(provider));
@@ -1412,10 +1663,11 @@ export function createWebSearchTool(options?: {
       const search_lang = normalizedBraveLanguageParams.search_lang;
       const ui_lang = normalizedBraveLanguageParams.ui_lang;
       const rawFreshness = readStringParam(params, "freshness");
-      if (rawFreshness && provider !== "brave" && provider !== "perplexity") {
+      if (rawFreshness && provider !== "brave" && provider !== "perplexity" && provider !== "exa") {
         return jsonResult({
           error: "unsupported_freshness",
-          message: "freshness is only supported by the Brave and Perplexity web_search providers.",
+          message:
+            "freshness is only supported by the Brave, Perplexity, and Exa web_search providers.",
           docs: "https://docs.openclaw.ai/tools/web",
         });
       }
@@ -1450,6 +1702,8 @@ export function createWebSearchTool(options?: {
         geminiModel: resolveGeminiModel(geminiConfig),
         kimiBaseUrl: resolveKimiBaseUrl(kimiConfig),
         kimiModel: resolveKimiModel(kimiConfig),
+        exaBaseUrl: resolveExaBaseUrl(exaConfig),
+        exaType: resolveExaType(exaConfig),
       });
       return jsonResult(result);
     },
@@ -1473,5 +1727,10 @@ export const __testing = {
   resolveKimiModel,
   resolveKimiBaseUrl,
   extractKimiCitations,
+  resolveExaApiKey,
+  resolveExaBaseUrl,
+  resolveExaType,
+  freshnessToExaStartCrawlDate,
+  pickExaDescription,
   resolveRedirectUrl: resolveCitationRedirectUrl,
 } as const;

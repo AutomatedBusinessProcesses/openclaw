@@ -44,6 +44,7 @@ import type { RuntimeEnv } from "../runtime.js";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import { isSenderAllowed, normalizeDmAllowFromWithStore } from "./bot-access.js";
 import type { TelegramMediaRef } from "./bot-message-context.js";
+import type { TelegramMessageRuntimeState } from "./bot-message.js";
 import {
   buildCappedTelegramMenuCommands,
   buildPluginTelegramMenuCommands,
@@ -135,6 +136,7 @@ type RegisterTelegramNativeCommandsParams = {
   ) => { groupConfig?: TelegramGroupConfig; topicConfig?: TelegramTopicConfig };
   shouldSkipUpdate: (ctx: TelegramUpdateKeyContext) => boolean;
   opts: { token: string };
+  resolveMessageRuntimeState?: () => TelegramMessageRuntimeState;
 };
 
 async function resolveTelegramCommandAuth(params: {
@@ -311,7 +313,6 @@ export const registerTelegramNativeCommands = ({
   groupAllowFrom,
   replyToMode,
   textLimit,
-  useAccessGroups,
   nativeEnabled,
   nativeSkillsEnabled,
   nativeDisabledExplicit,
@@ -319,6 +320,7 @@ export const registerTelegramNativeCommands = ({
   resolveTelegramGroupConfig,
   shouldSkipUpdate,
   opts,
+  resolveMessageRuntimeState,
 }: RegisterTelegramNativeCommandsParams) => {
   const boundRoute =
     nativeEnabled && nativeSkillsEnabled
@@ -409,13 +411,29 @@ export const registerTelegramNativeCommands = ({
     botIdentity: opts.token,
   });
 
+  const resolveCurrentRuntimeState = (): TelegramMessageRuntimeState =>
+    resolveMessageRuntimeState?.() ?? {
+      cfg,
+      account: { accountId },
+      telegramCfg,
+      historyLimit: 0,
+      dmPolicy: telegramCfg.dmPolicy ?? "pairing",
+      allowFrom,
+      groupAllowFrom,
+      ackReactionScope: cfg.messages?.ackReactionScope ?? "group-mentions",
+      replyToMode,
+      streamMode: "off",
+      textLimit,
+    };
+
   const resolveCommandRuntimeContext = (params: {
     msg: NonNullable<TelegramNativeCommandContext["message"]>;
     isGroup: boolean;
     isForum: boolean;
     resolvedThreadId?: number;
+    runtimeState: TelegramMessageRuntimeState;
   }) => {
-    const { msg, isGroup, isForum, resolvedThreadId } = params;
+    const { msg, isGroup, isForum, resolvedThreadId, runtimeState } = params;
     const chatId = msg.chat.id;
     const messageThreadId = (msg as { message_thread_id?: number }).message_thread_id;
     const threadSpec = resolveTelegramThreadSpec({
@@ -425,22 +443,22 @@ export const registerTelegramNativeCommands = ({
     });
     const parentPeer = buildTelegramParentPeer({ isGroup, resolvedThreadId, chatId });
     const route = resolveAgentRoute({
-      cfg,
+      cfg: runtimeState.cfg,
       channel: "telegram",
-      accountId,
+      accountId: runtimeState.account.accountId,
       peer: {
         kind: isGroup ? "group" : "direct",
         id: isGroup ? buildTelegramGroupPeerId(chatId, resolvedThreadId) : String(chatId),
       },
       parentPeer,
     });
-    const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, route.agentId);
+    const mediaLocalRoots = getAgentScopedMediaLocalRoots(runtimeState.cfg, route.agentId);
     const tableMode = resolveMarkdownTableMode({
-      cfg,
+      cfg: runtimeState.cfg,
       channel: "telegram",
       accountId: route.accountId,
     });
-    const chunkMode = resolveChunkMode(cfg, "telegram", route.accountId);
+    const chunkMode = resolveChunkMode(runtimeState.cfg, "telegram", route.accountId);
     return { chatId, threadSpec, route, mediaLocalRoots, tableMode, chunkMode };
   };
   const buildCommandDeliveryBaseOptions = (params: {
@@ -449,18 +467,21 @@ export const registerTelegramNativeCommands = ({
     threadSpec: ReturnType<typeof resolveTelegramThreadSpec>;
     tableMode: ReturnType<typeof resolveMarkdownTableMode>;
     chunkMode: ReturnType<typeof resolveChunkMode>;
+    replyToMode: ReplyToMode;
+    textLimit: number;
+    linkPreview?: boolean;
   }) => ({
     chatId: String(params.chatId),
     token: opts.token,
     runtime,
     bot,
     mediaLocalRoots: params.mediaLocalRoots,
-    replyToMode,
-    textLimit,
+    replyToMode: params.replyToMode,
+    textLimit: params.textLimit,
     thread: params.threadSpec,
     tableMode: params.tableMode,
     chunkMode: params.chunkMode,
-    linkPreview: telegramCfg.linkPreview,
+    linkPreview: params.linkPreview,
   });
 
   if (commandsToRegister.length > 0 || pluginCatalog.commands.length > 0) {
@@ -477,15 +498,16 @@ export const registerTelegramNativeCommands = ({
           if (shouldSkipUpdate(ctx)) {
             return;
           }
+          const runtimeState = resolveCurrentRuntimeState();
           const auth = await resolveTelegramCommandAuth({
             msg,
             bot,
-            cfg,
-            accountId,
-            telegramCfg,
-            allowFrom,
-            groupAllowFrom,
-            useAccessGroups,
+            cfg: runtimeState.cfg,
+            accountId: runtimeState.account.accountId,
+            telegramCfg: runtimeState.telegramCfg,
+            allowFrom: runtimeState.allowFrom,
+            groupAllowFrom: runtimeState.groupAllowFrom,
+            useAccessGroups: runtimeState.cfg.commands?.useAccessGroups !== false,
             resolveGroupPolicy,
             resolveTelegramGroupConfig,
             requireAuth: true,
@@ -510,6 +532,7 @@ export const registerTelegramNativeCommands = ({
               isGroup,
               isForum,
               resolvedThreadId,
+              runtimeState,
             });
           const deliveryBaseOptions = buildCommandDeliveryBaseOptions({
             chatId,
@@ -517,6 +540,9 @@ export const registerTelegramNativeCommands = ({
             threadSpec,
             tableMode,
             chunkMode,
+            replyToMode: runtimeState.replyToMode,
+            textLimit: runtimeState.textLimit,
+            linkPreview: runtimeState.telegramCfg.linkPreview,
           });
           const threadParams = buildTelegramThreadParams(threadSpec) ?? {};
 
@@ -536,7 +562,7 @@ export const registerTelegramNativeCommands = ({
             ? resolveCommandArgMenu({
                 command: commandDefinition,
                 args: commandArgs,
-                cfg,
+                cfg: runtimeState.cfg,
               })
             : null;
           if (menu && commandDefinition) {
@@ -623,7 +649,7 @@ export const registerTelegramNativeCommands = ({
           });
 
           await recordInboundSessionMetaSafe({
-            cfg,
+            cfg: runtimeState.cfg,
             agentId: route.agentId,
             sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
             ctx: ctxPayload,
@@ -634,8 +660,8 @@ export const registerTelegramNativeCommands = ({
           });
 
           const disableBlockStreaming =
-            typeof telegramCfg.blockStreaming === "boolean"
-              ? !telegramCfg.blockStreaming
+            typeof runtimeState.telegramCfg.blockStreaming === "boolean"
+              ? !runtimeState.telegramCfg.blockStreaming
               : undefined;
 
           const deliveryState = {
@@ -644,7 +670,7 @@ export const registerTelegramNativeCommands = ({
           };
 
           const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
-            cfg,
+            cfg: runtimeState.cfg,
             agentId: route.agentId,
             channel: "telegram",
             accountId: route.accountId,
@@ -652,7 +678,7 @@ export const registerTelegramNativeCommands = ({
 
           await dispatchReplyWithBufferedBlockDispatcher({
             ctx: ctxPayload,
-            cfg,
+            cfg: runtimeState.cfg,
             dispatcherOptions: {
               ...prefixOptions,
               deliver: async (payload, _info) => {
@@ -683,6 +709,7 @@ export const registerTelegramNativeCommands = ({
             await deliverReplies({
               replies: [{ text: EMPTY_RESPONSE_FALLBACK }],
               ...deliveryBaseOptions,
+              responseSuffix: prefixOptions.responseSuffix,
             });
           }
         });
@@ -709,15 +736,16 @@ export const registerTelegramNativeCommands = ({
             });
             return;
           }
+          const runtimeState = resolveCurrentRuntimeState();
           const auth = await resolveTelegramCommandAuth({
             msg,
             bot,
-            cfg,
-            accountId,
-            telegramCfg,
-            allowFrom,
-            groupAllowFrom,
-            useAccessGroups,
+            cfg: runtimeState.cfg,
+            accountId: runtimeState.account.accountId,
+            telegramCfg: runtimeState.telegramCfg,
+            allowFrom: runtimeState.allowFrom,
+            groupAllowFrom: runtimeState.groupAllowFrom,
+            useAccessGroups: runtimeState.cfg.commands?.useAccessGroups !== false,
             resolveGroupPolicy,
             resolveTelegramGroupConfig,
             requireAuth: match.command.requireAuth !== false,
@@ -726,12 +754,13 @@ export const registerTelegramNativeCommands = ({
             return;
           }
           const { senderId, commandAuthorized, isGroup, isForum, resolvedThreadId } = auth;
-          const { threadSpec, mediaLocalRoots, tableMode, chunkMode } =
+          const { threadSpec, route, mediaLocalRoots, tableMode, chunkMode } =
             resolveCommandRuntimeContext({
               msg,
               isGroup,
               isForum,
               resolvedThreadId,
+              runtimeState,
             });
           const deliveryBaseOptions = buildCommandDeliveryBaseOptions({
             chatId,
@@ -739,6 +768,9 @@ export const registerTelegramNativeCommands = ({
             threadSpec,
             tableMode,
             chunkMode,
+            replyToMode: runtimeState.replyToMode,
+            textLimit: runtimeState.textLimit,
+            linkPreview: runtimeState.telegramCfg.linkPreview,
           });
           const from = isGroup
             ? buildTelegramGroupFrom(chatId, threadSpec.id)
@@ -752,16 +784,22 @@ export const registerTelegramNativeCommands = ({
             channel: "telegram",
             isAuthorizedSender: commandAuthorized,
             commandBody,
-            config: cfg,
+            config: runtimeState.cfg,
             from,
             to,
-            accountId,
+            accountId: runtimeState.account.accountId,
             messageThreadId: threadSpec.id,
           });
 
           await deliverReplies({
             replies: [result],
             ...deliveryBaseOptions,
+            responseSuffix: createReplyPrefixOptions({
+              cfg: runtimeState.cfg,
+              agentId: route.agentId,
+              channel: "telegram",
+              accountId: route.accountId,
+            }).responseSuffix,
           });
         });
       }

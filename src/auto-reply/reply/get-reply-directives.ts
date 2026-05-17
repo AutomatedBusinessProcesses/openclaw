@@ -305,6 +305,7 @@ export async function resolveReplyDirectives(params: {
 
   const messageProviderKey =
     sessionCtx.Provider?.trim().toLowerCase() ?? ctx.Provider?.trim().toLowerCase() ?? "";
+  const menubarControlledModel = messageProviderKey === "telegram";
   const elevated = resolveElevatedPermissions({
     cfg,
     agentId,
@@ -384,6 +385,7 @@ export async function resolveReplyDirectives(params: {
     provider,
     model,
     hasModelDirective: directives.hasModelDirective,
+    ignoreStoredModelOverride: menubarControlledModel,
     hasResolvedHeartbeatModelOverride,
   });
   provider = modelState.provider;

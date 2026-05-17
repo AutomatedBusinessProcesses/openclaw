@@ -46,7 +46,9 @@ function createKimiSearchTool(kimiConfig?: { apiKey?: string; baseUrl?: string; 
   });
 }
 
-function createProviderSearchTool(provider: "brave" | "perplexity" | "grok" | "gemini" | "kimi") {
+function createProviderSearchTool(
+  provider: "brave" | "perplexity" | "grok" | "gemini" | "kimi" | "exa",
+) {
   const searchConfig =
     provider === "perplexity"
       ? { provider, perplexity: { apiKey: "pplx-config-test" } }
@@ -56,7 +58,9 @@ function createProviderSearchTool(provider: "brave" | "perplexity" | "grok" | "g
           ? { provider, gemini: { apiKey: "gemini-config-test" } }
           : provider === "kimi"
             ? { provider, kimi: { apiKey: "moonshot-config-test" } }
-            : { provider, apiKey: "brave-config-test" };
+            : provider === "exa"
+              ? { provider, exa: { apiKey: "exa-config-test" } }
+              : { provider, apiKey: "brave-config-test" };
   return createWebSearchTool({
     config: {
       tools: {
@@ -86,7 +90,7 @@ function installPerplexitySuccessFetch() {
 }
 
 function createProviderSuccessPayload(
-  provider: "brave" | "perplexity" | "grok" | "gemini" | "kimi",
+  provider: "brave" | "perplexity" | "grok" | "gemini" | "kimi" | "exa",
 ) {
   if (provider === "brave") {
     return { web: { results: [] } };
@@ -105,6 +109,19 @@ function createProviderSuccessPayload(
           groundingMetadata: { groundingChunks: [] },
         },
       ],
+    };
+  }
+  if (provider === "exa") {
+    return {
+      requestId: "req-test",
+      results: [
+        {
+          title: "OpenClaw Exa",
+          url: "https://openclaw.ai",
+          highlights: ["structured search"],
+        },
+      ],
+      searchType: "auto",
     };
   }
   return {
@@ -218,7 +235,7 @@ describe("web_search provider proxy dispatch", () => {
     global.fetch = priorFetch;
   });
 
-  it.each(["brave", "perplexity", "grok", "gemini", "kimi"] as const)(
+  it.each(["brave", "perplexity", "grok", "gemini", "kimi", "exa"] as const)(
     "uses proxy-aware dispatcher for %s provider when HTTP_PROXY is configured",
     async (provider) => {
       vi.stubEnv("HTTP_PROXY", "http://127.0.0.1:7890");

@@ -5,6 +5,7 @@ import type {
   ReactionTypeEmoji,
 } from "@grammyjs/types";
 import { type ApiClientOptions, Bot, HttpError, InputFile } from "grammy";
+import { appendResponseSuffix } from "../auto-reply/reply/normalize-reply.js";
 import { loadConfig } from "../config/config.js";
 import { resolveMarkdownTableMode } from "../config/markdown-tables.js";
 import { logVerbose } from "../globals.js";
@@ -463,6 +464,11 @@ export async function sendMessageTelegram(
   opts: TelegramSendOpts = {},
 ): Promise<TelegramSendResult> {
   const { cfg, account, api } = resolveTelegramApiContext(opts);
+  const responseSuffix = account.config.responseSuffix ?? cfg.messages?.responseSuffix;
+  const outboundText = appendResponseSuffix(text, responseSuffix);
+  const outboundPlainText = opts.plainText
+    ? appendResponseSuffix(opts.plainText, responseSuffix)
+    : undefined;
   const target = parseTelegramTarget(to);
   const chatId = await resolveAndPersistChatId({
     cfg,
@@ -579,9 +585,9 @@ export async function sendMessageTelegram(
 
     if (isVideoNote) {
       caption = undefined;
-      followUpText = text.trim() ? text : undefined;
+      followUpText = outboundText.trim() ? outboundText : undefined;
     } else {
-      const split = splitTelegramCaption(text);
+      const split = splitTelegramCaption(outboundText);
       caption = split.caption;
       followUpText = split.followUpText;
     }
@@ -731,7 +737,7 @@ export async function sendMessageTelegram(
     return { messageId: String(mediaMessageId), chatId: resolvedChatId };
   }
 
-  if (!text || !text.trim()) {
+  if (!outboundText || !outboundText.trim()) {
     throw new Error("Message must be non-empty for Telegram sends");
   }
   const textParams =
@@ -741,7 +747,7 @@ export async function sendMessageTelegram(
           ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
         }
       : undefined;
-  const res = await sendTelegramText(text, textParams, opts.plainText);
+  const res = await sendTelegramText(outboundText, textParams, outboundPlainText);
   const messageId = resolveTelegramMessageIdOrThrow(res, "text send");
   recordSentMessage(chatId, messageId);
   recordChannelActivity({

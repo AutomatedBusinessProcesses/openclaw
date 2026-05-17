@@ -11,13 +11,14 @@ type ModelSelectionContext = Parameters<NonNullable<GetReplyOptions["onModelSele
 export type ReplyPrefixContextBundle = {
   prefixContext: ResponsePrefixContext;
   responsePrefix?: string;
+  responseSuffix?: string;
   responsePrefixContextProvider: () => ResponsePrefixContext;
   onModelSelected: (ctx: ModelSelectionContext) => void;
 };
 
 export type ReplyPrefixOptions = Pick<
   ReplyPrefixContextBundle,
-  "responsePrefix" | "responsePrefixContextProvider" | "onModelSelected"
+  "responsePrefix" | "responseSuffix" | "responsePrefixContextProvider" | "onModelSelected"
 >;
 
 export function createReplyPrefixContext(params: {
@@ -39,12 +40,15 @@ export function createReplyPrefixContext(params: {
     prefixContext.thinkingLevel = ctx.thinkLevel ?? "off";
   };
 
+  const messagesConfig = resolveEffectiveMessagesConfig(cfg, agentId, {
+    channel: params.channel,
+    accountId: params.accountId,
+  });
+
   return {
     prefixContext,
-    responsePrefix: resolveEffectiveMessagesConfig(cfg, agentId, {
-      channel: params.channel,
-      accountId: params.accountId,
-    }).responsePrefix,
+    responsePrefix: messagesConfig.responsePrefix,
+    responseSuffix: messagesConfig.responseSuffix,
     responsePrefixContextProvider: () => prefixContext,
     onModelSelected,
   };
@@ -56,7 +60,7 @@ export function createReplyPrefixOptions(params: {
   channel?: string;
   accountId?: string;
 }): ReplyPrefixOptions {
-  const { responsePrefix, responsePrefixContextProvider, onModelSelected } =
+  const { responsePrefix, responseSuffix, responsePrefixContextProvider, onModelSelected } =
     createReplyPrefixContext(params);
-  return { responsePrefix, responsePrefixContextProvider, onModelSelected };
+  return { responsePrefix, responseSuffix, responsePrefixContextProvider, onModelSelected };
 }
