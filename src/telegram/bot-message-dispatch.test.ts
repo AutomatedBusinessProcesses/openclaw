@@ -150,6 +150,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
   async function dispatchWithContext(params: {
     context: TelegramMessageContext;
+    cfg?: Parameters<typeof dispatchTelegramMessage>[0]["cfg"];
     telegramCfg?: Parameters<typeof dispatchTelegramMessage>[0]["telegramCfg"];
     streamMode?: Parameters<typeof dispatchTelegramMessage>[0]["streamMode"];
     bot?: Bot;
@@ -158,7 +159,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     await dispatchTelegramMessage({
       context: params.context,
       bot,
-      cfg: {},
+      cfg: params.cfg ?? {},
       runtime: createRuntime(),
       replyToMode: "first",
       streamMode: params.streamMode ?? "partial",
@@ -246,6 +247,33 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
     expect(acknowledgeModelChangeReceipts).toHaveBeenCalledWith(["receipt-1"]);
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
+  });
+
+  it("passes configured Telegram responseSuffix into final dispatch normalization", async () => {
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
+      await dispatcherOptions.deliver({ text: "Done" }, { kind: "final" });
+      return { queuedFinal: true };
+    });
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({
+      context: createContext(),
+      cfg: {
+        channels: {
+          telegram: {
+            responseSuffix: "\n\nEND",
+          },
+        },
+      },
+    });
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatcherOptions: expect.objectContaining({
+          responseSuffix: "\n\nEND",
+        }),
+      }),
+    );
   });
 
   it("uses 30-char preview debounce for legacy block stream mode", async () => {
