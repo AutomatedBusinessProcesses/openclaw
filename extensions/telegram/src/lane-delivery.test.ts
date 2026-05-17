@@ -27,12 +27,14 @@ function createHarness(params?: {
       lastPartialText: "",
       hasStreamedMessage: false,
       finalized: false,
+      retained: false,
     },
     reasoning: {
       stream: reasoning,
       lastPartialText: "",
       hasStreamedMessage: false,
       finalized: false,
+      retained: false,
     },
   };
   const sendPayload = vi.fn().mockResolvedValue(true);
@@ -138,7 +140,7 @@ describe("createLaneTextDeliverer", () => {
     expect(harness.sendPayload).not.toHaveBeenCalled();
   });
 
-  it("uses normal final delivery when the stream edit leaves stale text", async () => {
+  it("uses normal final delivery and retains the preview when the stream edit leaves stale text", async () => {
     const answer = createTestDraftStream({ messageId: 999 });
     answer.lastDeliveredText.mockReturnValue("working");
     const harness = createHarness({ answerStream: answer });
@@ -147,9 +149,11 @@ describe("createLaneTextDeliverer", () => {
 
     expect(result.kind).toBe("sent");
     expect(answer.update).toHaveBeenCalledWith("done");
-    expect(harness.clearDraftLane).toHaveBeenCalledTimes(1);
+    expect(answer.discard).toHaveBeenCalledTimes(1);
+    expect(harness.clearDraftLane).not.toHaveBeenCalled();
     expect(harness.sendPayload).toHaveBeenCalledWith({ text: "done" }, { durable: true });
     expect(harness.markDelivered).not.toHaveBeenCalled();
+    expect(harness.lanes.answer.retained).toBe(true);
     expect(harness.lanes.answer.finalized).toBe(true);
   });
 
@@ -164,7 +168,7 @@ describe("createLaneTextDeliverer", () => {
     expect(harness.lanes.answer.finalized).toBe(true);
   });
 
-  it("clears unfinalized stream state before non-stream final delivery", async () => {
+  it("retains visible stream state before non-stream final delivery", async () => {
     const harness = createHarness({ answerMessageId: 999 });
 
     const result = await harness.deliverLaneText({
@@ -175,8 +179,9 @@ describe("createLaneTextDeliverer", () => {
     });
 
     expect(result.kind).toBe("sent");
-    expect(harness.clearDraftLane).toHaveBeenCalledTimes(1);
-    expect(harness.answer?.clear).toHaveBeenCalledTimes(1);
+    expect(harness.clearDraftLane).not.toHaveBeenCalled();
+    expect(harness.answer?.discard).toHaveBeenCalledTimes(1);
+    expect(harness.lanes.answer.retained).toBe(true);
     expect(harness.sendPayload).toHaveBeenCalledWith(
       {
         text: "photo",

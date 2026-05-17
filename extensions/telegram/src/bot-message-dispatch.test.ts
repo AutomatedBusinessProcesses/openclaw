@@ -479,7 +479,24 @@ describe("dispatchTelegramMessage draft streaming", () => {
       }),
     );
     expect(editMessageTelegram).not.toHaveBeenCalled();
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(draftStream.discard).toHaveBeenCalledTimes(1);
+    expect(draftStream.clear).not.toHaveBeenCalled();
+  });
+
+  it("flushes pending partial drafts instead of clearing them when no final arrives", async () => {
+    const draftStream = createDraftStream();
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
+      await replyOptions?.onPartialReply?.({ text: "Working draft" });
+      return { queuedFinal: false };
+    });
+
+    await dispatchWithContext({ context: createContext() });
+
+    expect(draftStream.update).toHaveBeenCalledWith("Working draft");
+    expect(draftStream.stop).toHaveBeenCalledTimes(1);
+    expect(draftStream.clear).not.toHaveBeenCalled();
+    expect(deliverReplies).not.toHaveBeenCalled();
   });
 
   it("keeps retained overflow draft previews", async () => {
@@ -1026,7 +1043,8 @@ describe("dispatchTelegramMessage draft streaming", () => {
       expect.stringMatching(/`🛠️ Exec: git rev-parse --abbrev-ref HEAD`$/),
     );
     expect(answerDraftStream.update).not.toHaveBeenCalledWith("Branch is up to date");
-    expect(answerDraftStream.clear).toHaveBeenCalledTimes(1);
+    expect(answerDraftStream.discard).toHaveBeenCalledTimes(1);
+    expect(answerDraftStream.clear).not.toHaveBeenCalled();
     expect(deliverReplies).toHaveBeenCalledWith(
       expect.objectContaining({
         replies: [expect.objectContaining({ text: "Branch is up to date" })],
@@ -1057,7 +1075,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(editMessageTelegram).not.toHaveBeenCalled();
   });
 
-  it("falls back to normal send for media and clears the pending stream", async () => {
+  it("falls back to normal send for media and retains the pending stream", async () => {
     const { answerDraftStream } = setupDraftStreams({ answerMessageId: 2001 });
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
       await dispatcherOptions.deliver(
@@ -1069,7 +1087,8 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     await dispatchWithContext({ context: createContext() });
 
-    expect(answerDraftStream.clear).toHaveBeenCalled();
+    expect(answerDraftStream.discard).toHaveBeenCalled();
+    expect(answerDraftStream.clear).not.toHaveBeenCalled();
     expect(answerDraftStream.update).not.toHaveBeenCalledWith("Photo");
     expect(deliverReplies).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1098,6 +1117,27 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     expect(draftStream.update).toHaveBeenCalledWith(expect.stringMatching(/^Shelling\n`🛠️ Exec`$/));
     expect(draftStream.flush).toHaveBeenCalled();
+  });
+
+  it("starts and retains Telegram progress drafts at reply start when no final arrives", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
+      await replyOptions?.onReplyStart?.();
+      return { queuedFinal: false };
+    });
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
+    });
+
+    expect(draftStream.update).toHaveBeenCalledWith("Shelling");
+    expect(draftStream.flush).toHaveBeenCalled();
+    expect(draftStream.discard).toHaveBeenCalledTimes(1);
+    expect(draftStream.clear).not.toHaveBeenCalled();
+    expect(deliverReplies).not.toHaveBeenCalled();
   });
 
   it("renders Telegram progress drafts before slow status reactions resolve", async () => {
@@ -1159,7 +1199,8 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
     expect(draftStream.forceNewMessage).not.toHaveBeenCalled();
     expect(draftStream.materialize).not.toHaveBeenCalled();
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(draftStream.discard).toHaveBeenCalledTimes(1);
+    expect(draftStream.clear).not.toHaveBeenCalled();
     expect(deliverReplies).toHaveBeenCalledWith(
       expect.objectContaining({
         replies: [expect.objectContaining({ text: "Final after tool" })],
@@ -1168,7 +1209,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(editMessageTelegram).not.toHaveBeenCalled();
   });
 
-  it("falls back to normal send for error payloads and clears the pending stream", async () => {
+  it("falls back to normal send for error payloads and retains the pending stream", async () => {
     const { answerDraftStream } = setupDraftStreams({ answerMessageId: 2001 });
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
       await dispatcherOptions.deliver({ text: "Boom", isError: true }, { kind: "final" });
@@ -1177,7 +1218,8 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     await dispatchWithContext({ context: createContext() });
 
-    expect(answerDraftStream.clear).toHaveBeenCalled();
+    expect(answerDraftStream.discard).toHaveBeenCalled();
+    expect(answerDraftStream.clear).not.toHaveBeenCalled();
     expect(deliverReplies).toHaveBeenCalledWith(
       expect.objectContaining({ replies: [expect.objectContaining({ text: "Boom" })] }),
     );

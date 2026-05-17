@@ -14,6 +14,7 @@ export type DraftLaneState = {
   lastPartialText: string;
   hasStreamedMessage: boolean;
   finalized: boolean;
+  retained: boolean;
 };
 
 type LanePreviewFinalizedDelivery = {
@@ -107,13 +108,20 @@ export function createLaneTextDeliverer(params: CreateLaneTextDelivererParams) {
       ? params.applyTextToFollowUpPayload(payload, text)
       : params.applyTextToPayload(payload, text);
 
-  const clearUnfinalizedStream = async (lane: DraftLaneState) => {
+  const retainVisibleStream = async (lane: DraftLaneState) => {
     if (!lane.stream || lane.finalized) {
       return;
     }
+    if (lane.hasStreamedMessage || typeof lane.stream.messageId() === "number") {
+      if (typeof lane.stream.discard === "function") {
+        await lane.stream.discard();
+      } else {
+        await params.stopDraftLane(lane);
+      }
+      lane.retained = true;
+      return;
+    }
     await params.clearDraftLane(lane);
-    lane.lastPartialText = "";
-    lane.hasStreamedMessage = false;
   };
 
   const streamText = async (
@@ -141,6 +149,7 @@ export function createLaneTextDeliverer(params: CreateLaneTextDelivererParams) {
     lane.lastPartialText = firstChunk;
     lane.hasStreamedMessage = true;
     lane.finalized = false;
+    lane.retained = false;
     stream.update(firstChunk);
     if (isFinal) {
       await params.stopDraftLane(lane);
@@ -208,7 +217,7 @@ export function createLaneTextDeliverer(params: CreateLaneTextDelivererParams) {
     }
 
     if (isFinal) {
-      await clearUnfinalizedStream(lane);
+      await retainVisibleStream(lane);
     }
 
     const delivered = await params.sendPayload(params.applyTextToPayload(payload, text), {
