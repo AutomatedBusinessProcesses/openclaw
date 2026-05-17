@@ -440,8 +440,8 @@ export type ToolsConfig = {
     search?: {
       /** Enable web search tool (default: true when API key is present). */
       enabled?: boolean;
-      /** Search provider ("brave", "perplexity", "grok", "gemini", or "kimi"). */
-      provider?: "brave" | "perplexity" | "grok" | "gemini" | "kimi";
+      /** Search provider ("brave", "perplexity", "grok", "gemini", "kimi", or "exa"). */
+      provider?: "brave" | "perplexity" | "grok" | "gemini" | "kimi" | "exa";
       /** Brave Search API key (optional; defaults to BRAVE_API_KEY env var). */
       apiKey?: string;
       /** Default search results count (1-10). */
@@ -483,6 +483,15 @@ export type ToolsConfig = {
         baseUrl?: string;
         /** Model to use (defaults to "moonshot-v1-128k"). */
         model?: string;
+      };
+      /** Exa-specific configuration (used when provider="exa"). */
+      exa?: {
+        /** Exa API key (defaults to EXA_API_KEY env var). */
+        apiKey?: string;
+        /** Base URL for API requests (defaults to "https://api.exa.ai"). */
+        baseUrl?: string;
+        /** Search mode (defaults to "auto"). */
+        type?: "neural" | "fast" | "auto" | "deep-lite" | "deep" | "deep-reasoning" | "instant";
       };
     };
     fetch?: {

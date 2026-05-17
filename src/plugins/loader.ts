@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
+import memoryCoreBundledPlugin from "../../extensions/memory-core/index.js";
+import telegramBundledPlugin from "../../extensions/telegram/index.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
@@ -42,8 +44,19 @@ export type PluginLoadOptions = {
 };
 
 const registryCache = new Map<string, PluginRegistry>();
+const bundledPluginModuleOverrides = new Map<string, OpenClawPluginModule>([
+  ["memory-core", { default: memoryCoreBundledPlugin }],
+  ["telegram", { default: telegramBundledPlugin }],
+]);
 
 const defaultLogger = () => createSubsystemLogger("plugins");
+
+function emitPluginLoadPhase(pluginId: string, phase: string): void {
+  if (process.env.OPENCLAW_DEBUG_PLUGIN_LOAD !== "1") {
+    return;
+  }
+  process.stderr.write(`[openclaw plugin load] ${pluginId} ${phase}\n`);
+}
 
 const resolvePluginSdkAliasFile = (params: {
   srcFile: string;
@@ -550,7 +563,11 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
 
     let mod: OpenClawPluginModule | null = null;
     try {
-      mod = getJiti()(safeSource) as OpenClawPluginModule;
+      emitPluginLoadPhase(pluginId, "module:load:start");
+      const bundledOverride =
+        candidate.origin === "bundled" ? bundledPluginModuleOverrides.get(pluginId) : undefined;
+      mod = bundledOverride ?? (getJiti()(safeSource) as OpenClawPluginModule);
+      emitPluginLoadPhase(pluginId, "module:load:done");
     } catch (err) {
       recordPluginError({
         logger,
@@ -648,6 +665,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     });
 
     try {
+      emitPluginLoadPhase(pluginId, "register:start");
       const result = register(api);
       if (result && typeof result.then === "function") {
         registry.diagnostics.push({
@@ -657,6 +675,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
           message: "plugin register returned a promise; async registration is ignored",
         });
       }
+      emitPluginLoadPhase(pluginId, "register:done");
       registry.plugins.push(record);
       seenIds.set(pluginId, candidate.origin);
     } catch (err) {

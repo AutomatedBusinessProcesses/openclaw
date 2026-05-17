@@ -9,6 +9,12 @@ import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
+import {
+  HEARTBEAT_TOKEN,
+  isSilentReplyPrefixText,
+  isSilentReplyText,
+  SILENT_REPLY_TOKEN,
+} from "../auto-reply/tokens.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
 import { logAckFailure, logTypingFailure } from "../channels/logging.js";
@@ -23,6 +29,7 @@ import type { RuntimeEnv } from "../runtime.js";
 import type { TelegramMessageContext } from "./bot-message-context.js";
 import type { TelegramBotOptions } from "./bot.js";
 import { deliverReplies } from "./bot/delivery.js";
+import { buildTelegramThreadParams } from "./bot/helpers.js";
 import type { TelegramStreamMode } from "./bot/types.js";
 import type { TelegramInlineButtons } from "./button-types.js";
 import { createTelegramDraftStream } from "./draft-stream.js";
@@ -35,6 +42,11 @@ import {
   type LaneName,
 } from "./lane-delivery.js";
 import {
+  acknowledgeModelChangeReceipts,
+  formatModelChangeReceiptNotice,
+  readPendingModelChangeReceipts,
+} from "./model-change-receipts.js";
+import {
   createTelegramReasoningStepState,
   splitTelegramReasoningText,
 } from "./reasoning-lane-coordinator.js";
@@ -45,6 +57,52 @@ const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
 
 /** Minimum chars before sending first streaming message (improves push notification UX) */
 const DRAFT_MIN_INITIAL_CHARS = 30;
+const SUPPRESSED_DRAFT_LEADS = new Set(
+  [SILENT_REPLY_TOKEN, HEARTBEAT_TOKEN].map((token) => token.split("_")[0] ?? token),
+);
+
+function isSilentControlText(text: string | undefined): boolean {
+  return (
+    isSilentReplyText(text, SILENT_REPLY_TOKEN) ||
+    isSilentReplyPrefixText(text, SILENT_REPLY_TOKEN) ||
+    isSilentReplyText(text, HEARTBEAT_TOKEN) ||
+    isSilentReplyPrefixText(text, HEARTBEAT_TOKEN)
+  );
+}
+
+function isSuppressedDraftPreviewText(text: string | undefined): boolean {
+  const trimmed = text?.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return SUPPRESSED_DRAFT_LEADS.has(trimmed) || isSilentControlText(trimmed);
+}
+
+async function sendPendingModelChangeReceipt(params: {
+  bot: Bot;
+  chatId: string | number;
+  threadSpec: TelegramMessageContext["threadSpec"];
+  runtime: RuntimeEnv;
+}) {
+  const receipts = await readPendingModelChangeReceipts();
+  if (receipts.length === 0) {
+    return;
+  }
+  const text = formatModelChangeReceiptNotice(receipts);
+  if (!text) {
+    return;
+  }
+  try {
+    await params.bot.api.sendMessage(
+      params.chatId,
+      text,
+      buildTelegramThreadParams(params.threadSpec),
+    );
+    await acknowledgeModelChangeReceipts(receipts.map((receipt) => receipt.id));
+  } catch (err) {
+    params.runtime.error?.(danger(`telegram model-change receipt failed: ${String(err)}`));
+  }
+}
 
 async function resolveStickerVisionSupport(cfg: OpenClawConfig, agentId: string) {
   try {
@@ -265,6 +323,9 @@ export const dispatchTelegramMessage = async ({
     if (!laneStream || !text) {
       return;
     }
+    if (isSuppressedDraftPreviewText(text)) {
+      return;
+    }
     if (text === lane.lastPartialText) {
       return;
     }
@@ -317,6 +378,13 @@ export const dispatchTelegramMessage = async ({
     accountId: route.accountId,
   });
   const chunkMode = resolveChunkMode(cfg, "telegram", route.accountId);
+
+  await sendPendingModelChangeReceipt({
+    bot,
+    chatId,
+    threadSpec,
+    runtime,
+  });
 
   // Handle uncached stickers: get a dedicated vision description before dispatch
   // This ensures we cache a raw description rather than a conversational response
@@ -475,6 +543,12 @@ export const dispatchTelegramMessage = async ({
           const split = splitTextIntoLaneSegments(payload.text);
           const segments = split.segments;
           const hasMedia = Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
+          if (!hasMedia && isSilentControlText(payload.text)) {
+            if (info.kind === "final") {
+              reasoningStepState.resetForNextStep();
+            }
+            return;
+          }
 
           const flushBufferedFinalAnswer = async () => {
             const buffered = reasoningStepState.takeBufferedFinalAnswer();

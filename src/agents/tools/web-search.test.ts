@@ -18,6 +18,11 @@ const {
   resolveKimiModel,
   resolveKimiBaseUrl,
   extractKimiCitations,
+  resolveExaApiKey,
+  resolveExaBaseUrl,
+  resolveExaType,
+  freshnessToExaStartCrawlDate,
+  pickExaDescription,
 } = __testing;
 
 describe("web_search perplexity baseUrl defaults", () => {
@@ -148,6 +153,38 @@ describe("freshnessToPerplexityRecency", () => {
   it("returns undefined for undefined/empty input", () => {
     expect(freshnessToPerplexityRecency(undefined)).toBeUndefined();
     expect(freshnessToPerplexityRecency("")).toBeUndefined();
+  });
+});
+
+describe("web_search exa config resolution", () => {
+  it("uses config apiKey when provided", () => {
+    expect(resolveExaApiKey({ apiKey: "exa-config-key" })).toBe("exa-config-key");
+  });
+
+  it("uses EXA_API_KEY env when config apiKey is absent", () => {
+    withEnv({ EXA_API_KEY: "exa-env-key" }, () => {
+      expect(resolveExaApiKey({})).toBe("exa-env-key");
+    });
+  });
+
+  it("resolves Exa base URL and type defaults", () => {
+    expect(resolveExaBaseUrl({})).toBe("https://api.exa.ai");
+    expect(resolveExaBaseUrl({ baseUrl: "https://exa.example" })).toBe("https://exa.example");
+    expect(resolveExaType({})).toBe("auto");
+    expect(resolveExaType({ type: "deep" })).toBe("deep");
+  });
+
+  it("maps Exa freshness shortcuts to crawl-date filters", () => {
+    const now = new Date("2026-05-08T12:00:00.000Z");
+    expect(freshnessToExaStartCrawlDate("pd", now)).toBe("2026-05-07T12:00:00.000Z");
+    expect(freshnessToExaStartCrawlDate("pw", now)).toBe("2026-05-01T12:00:00.000Z");
+    expect(freshnessToExaStartCrawlDate("2026-05-01to2026-05-08", now)).toBeUndefined();
+  });
+
+  it("picks Exa descriptions from highlights, then summary, then text", () => {
+    expect(pickExaDescription({ highlights: [" first ", "second"] })).toBe("first\nsecond");
+    expect(pickExaDescription({ summary: " summary " })).toBe("summary");
+    expect(pickExaDescription({ text: " text " })).toBe("text");
   });
 });
 
