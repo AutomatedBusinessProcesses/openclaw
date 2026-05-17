@@ -2354,6 +2354,39 @@ describe("createTelegramBot", () => {
       { type: "emoji", emoji: EYES_EMOJI },
     ]);
   });
+
+  it("reacts to accepted open-group messages when ackReactionScope is all", async () => {
+    resetHarnessSpies();
+
+    loadConfig.mockReturnValue({
+      messages: {
+        ackReaction: EYES_EMOJI,
+        ackReactionScope: "all",
+        removeAckAfterReply: false,
+      },
+      channels: {
+        telegram: {
+          groupPolicy: "open",
+          groups: { "*": { requireMention: false } },
+        },
+      },
+    });
+
+    await dispatchMessage({
+      message: {
+        chat: { id: 7, type: "group", title: "Test Group" },
+        text: "status?",
+        date: 1736380800,
+        message_id: 124,
+        from: { id: 9, first_name: "Ada" },
+      },
+    });
+
+    expect(setMessageReactionSpy).toHaveBeenCalledWith(7, 124, [
+      { type: "emoji", emoji: EYES_EMOJI },
+    ]);
+  });
+
   it("clears native commands when disabled", () => {
     resetHarnessSpies();
     loadConfig.mockReturnValue({

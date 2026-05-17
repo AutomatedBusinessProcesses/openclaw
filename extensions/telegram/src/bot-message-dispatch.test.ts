@@ -602,6 +602,30 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
   });
 
+  it("passes configured Telegram responseSuffix into final dispatch normalization", async () => {
+    createChannelMessageReplyPipeline.mockReturnValue({
+      responsePrefix: undefined,
+      responseSuffix: "\n\nEND",
+      responsePrefixContextProvider: () => ({ identityName: undefined }),
+      onModelSelected: () => undefined,
+    });
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
+      await dispatcherOptions.deliver({ text: "Done" }, { kind: "final" });
+      return { queuedFinal: true };
+    });
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext() });
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatcherOptions: expect.objectContaining({
+          responseSuffix: "\n\nEND",
+        }),
+      }),
+    );
+  });
+
   it("queues media-only final Telegram replies through outbound delivery when available", async () => {
     deliverInboundReplyWithMessageSendContext.mockResolvedValue({
       status: "handled_visible",

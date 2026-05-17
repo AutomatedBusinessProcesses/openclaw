@@ -8,6 +8,7 @@ Docs: https://docs.openclaw.ai
 
 - Telegram/streaming: start progress draft previews as soon as a reply begins, retain visible working drafts when final delivery falls back to a normal send, and flush pending draft text instead of deleting it when a turn ends without a final response.
 - Telegram/streaming: render progress-mode previews as an append-only working draft code block that keeps reply start, tool/progress, and visible assistant draft fragments until the final reply arrives.
+- Telegram/operator protocol: document and test the live ABP transport settings for always-on Telegram ack reactions and final `END` markers in open-group operation.
 - Active Memory: support concrete `plugins.entries.active-memory.config.toolsAllow` recall tool names for custom memory plugins while keeping the built-in memory-core default on `memory_search`/`memory_get` and preserving `memory_recall` automatically for `plugins.slots.memory: "memory-lancedb"`.
 - Telegram/Feishu: honor configured per-agent and global `reasoningDefault` values when deciding whether channel reasoning previews should stream or stay hidden, addressing the preview-default part of #73182. Thanks @anagnorisis2peripeteia.
 - Docker: run the runtime image under `tini` so long-lived containers reap orphaned child processes and forward signals correctly. (#77885) Thanks @VintageAyu.
