@@ -1040,7 +1040,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(answerDraftStream.update).toHaveBeenCalledWith(
-      expect.stringMatching(/`🛠️ Exec: git rev-parse --abbrev-ref HEAD`$/),
+      "Working draft\n```text\nreply started\n\n🛠️ Exec\n\n🛠️ Exec: git rev-parse --abbrev-ref HEAD\n```",
     );
     expect(answerDraftStream.update).not.toHaveBeenCalledWith("Branch is up to date");
     expect(answerDraftStream.discard).toHaveBeenCalledTimes(1);
@@ -1115,7 +1115,9 @@ describe("dispatchTelegramMessage draft streaming", () => {
       telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
     });
 
-    expect(draftStream.update).toHaveBeenCalledWith(expect.stringMatching(/^Shelling\n`🛠️ Exec`$/));
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringMatching(/^Working draft\n```text\nreply started\n\n🛠️ Exec\n```$/),
+    );
     expect(draftStream.flush).toHaveBeenCalled();
   });
 
@@ -1133,11 +1135,49 @@ describe("dispatchTelegramMessage draft streaming", () => {
       telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
     });
 
-    expect(draftStream.update).toHaveBeenCalledWith("Shelling");
+    expect(draftStream.update).toHaveBeenCalledWith("Working draft\n```text\nreply started\n```");
     expect(draftStream.flush).toHaveBeenCalled();
     expect(draftStream.discard).toHaveBeenCalledTimes(1);
     expect(draftStream.clear).not.toHaveBeenCalled();
     expect(deliverReplies).not.toHaveBeenCalled();
+  });
+
+  it("retains streamed assistant draft details in the progress working draft", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReplyStart?.();
+        await replyOptions?.onPartialReply?.({ text: "I found the migration note in setup.md." });
+        await replyOptions?.onPartialReply?.({
+          text: "I found the migration note in setup.md.\nThe important detail is rollback flag X.",
+        });
+        await dispatcherOptions.deliver({ text: "Final summary." }, { kind: "final" });
+        return { queuedFinal: true };
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
+    });
+
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringContaining("assistant draft:\nI found the migration note in setup.md."),
+    );
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "assistant draft continued:\nThe important detail is rollback flag X.",
+      ),
+    );
+    expect(draftStream.discard).toHaveBeenCalledTimes(1);
+    expect(draftStream.clear).not.toHaveBeenCalled();
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [expect.objectContaining({ text: "Final summary." })],
+      }),
+    );
   });
 
   it("renders Telegram progress drafts before slow status reactions resolve", async () => {
@@ -1158,7 +1198,9 @@ describe("dispatchTelegramMessage draft streaming", () => {
       const updateBeforeStatusReaction = draftStream.update.mock.calls.at(-1)?.[0];
       releaseSetTool?.();
       await pendingToolStart;
-      expect(updateBeforeStatusReaction).toMatch(/^Shelling\n`🛠️ Exec`$/);
+      expect(updateBeforeStatusReaction).toMatch(
+        /^Working draft\n```text\nreply started\n\n🛠️ Exec\n```$/,
+      );
       return { queuedFinal: false };
     });
 
@@ -1195,7 +1237,9 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringMatching(/^Shelling\n`🔎 Web Search: docs lookup`\n• `tests passed`$/),
+      expect.stringMatching(
+        /^Working draft\n```text\nreply started\n\n🔎 Web Search: docs lookup\n\ntests passed\n```$/,
+      ),
     );
     expect(draftStream.forceNewMessage).not.toHaveBeenCalled();
     expect(draftStream.materialize).not.toHaveBeenCalled();

@@ -271,6 +271,7 @@ function resolveTelegramReasoningLevel(params: {
 }
 
 const MAX_PROGRESS_MARKDOWN_TEXT_CHARS = 300;
+const MAX_WORKING_DRAFT_ENTRY_CHARS = 1600;
 
 function clipProgressMarkdownText(text: string): string {
   if (text.length <= MAX_PROGRESS_MARKDOWN_TEXT_CHARS) {
@@ -286,6 +287,26 @@ function sanitizeProgressMarkdownText(text: string): string {
 function formatProgressAsMarkdownCode(text: string): string {
   const clipped = clipProgressMarkdownText(text);
   return `\`${sanitizeProgressMarkdownText(clipped)}\``;
+}
+
+function sanitizeWorkingDraftLogText(text: string): string {
+  return text
+    .replace(/\r\n?/gu, "\n")
+    .replaceAll("`", "'")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "")
+    .trim();
+}
+
+function clipWorkingDraftLogEntry(text: string): string {
+  if (text.length <= MAX_WORKING_DRAFT_ENTRY_CHARS) {
+    return text;
+  }
+  return `${text.slice(0, MAX_WORKING_DRAFT_ENTRY_CHARS - 1).trimEnd()}…`;
+}
+
+function formatWorkingDraftLogText(entries: string[]): string {
+  const body = entries.length > 0 ? entries.join("\n\n") : "reply started";
+  return `Working draft\n\`\`\`text\n${body}\n\`\`\``;
 }
 
 export const dispatchTelegramMessage = async ({
@@ -508,16 +529,62 @@ export const dispatchTelegramMessage = async ({
     Boolean(answerLane.stream) && resolveChannelStreamingPreviewToolProgress(telegramCfg);
   let streamToolProgressSuppressed = false;
   let streamToolProgressLines: string[] = [];
+  const workingDraftLogEntries: string[] = [];
+  let lastWorkingDraftAnswerText = "";
+  let lastWorkingDraftReasoningText = "";
+  const appendWorkingDraftEntry = (text: string): boolean => {
+    const normalized = clipWorkingDraftLogEntry(sanitizeWorkingDraftLogText(text));
+    if (!normalized || workingDraftLogEntries.at(-1) === normalized) {
+      return false;
+    }
+    if (workingDraftLogEntries.length === 0 && normalized !== "reply started") {
+      workingDraftLogEntries.push("reply started");
+    }
+    workingDraftLogEntries.push(normalized);
+    return true;
+  };
+  const ensureWorkingDraftStarted = () => {
+    if (workingDraftLogEntries.length === 0) {
+      appendWorkingDraftEntry("reply started");
+    }
+  };
+  const appendWorkingDraftTextDelta = (params: {
+    laneName: LaneName;
+    label: string;
+    text: string;
+  }): boolean => {
+    const normalized = sanitizeWorkingDraftLogText(params.text);
+    if (!normalized) {
+      return false;
+    }
+    const previous =
+      params.laneName === "answer" ? lastWorkingDraftAnswerText : lastWorkingDraftReasoningText;
+    if (normalized === previous) {
+      return false;
+    }
+    let entry: string;
+    if (previous && normalized.startsWith(previous)) {
+      const delta = sanitizeWorkingDraftLogText(normalized.slice(previous.length));
+      if (!delta) {
+        return false;
+      }
+      entry = `${params.label} continued:\n${delta}`;
+    } else {
+      entry = `${params.label}:\n${normalized}`;
+    }
+    if (params.laneName === "answer") {
+      lastWorkingDraftAnswerText = normalized;
+    } else {
+      lastWorkingDraftReasoningText = normalized;
+    }
+    return appendWorkingDraftEntry(entry);
+  };
   const renderProgressDraft = async (options?: { flush?: boolean }) => {
     if (!answerLane.stream || streamMode !== "progress") {
       return;
     }
-    const streamText = formatChannelProgressDraftText({
-      entry: telegramCfg,
-      lines: streamToolProgressLines,
-      seed: progressSeed,
-      formatLine: formatProgressAsMarkdownCode,
-    });
+    ensureWorkingDraftStarted();
+    const streamText = formatWorkingDraftLogText(workingDraftLogEntries);
     if (!streamText || streamText === answerLane.lastPartialText) {
       return;
     }
@@ -582,6 +649,7 @@ export const dispatchTelegramMessage = async ({
         streamToolProgressLines = [...streamToolProgressLines, normalized].slice(
           -resolveChannelProgressDraftMaxLines(telegramCfg),
         );
+        appendWorkingDraftEntry(normalized);
       }
     }
     if (
@@ -663,9 +731,15 @@ export const dispatchTelegramMessage = async ({
     }
     await rotateLaneForNewMessage(answerLane);
   };
-  const updateDraftFromPartial = (lane: DraftLaneState, text: string | undefined) => {
+  const updateDraftFromPartial = async (lane: DraftLaneState, text: string | undefined) => {
     const laneStream = lane.stream;
     if (!laneStream || !text) {
+      return;
+    }
+    if (lane === answerLane && streamMode === "progress") {
+      if (appendWorkingDraftTextDelta({ laneName: "answer", label: "assistant draft", text })) {
+        await renderProgressDraft();
+      }
       return;
     }
     if (text === lane.lastPartialText) {
@@ -701,7 +775,7 @@ export const dispatchTelegramMessage = async ({
         reasoningStepState.noteReasoningHint();
         reasoningStepState.noteReasoningDelivered();
       }
-      updateDraftFromPartial(lanes[segment.lane], segment.text);
+      await updateDraftFromPartial(lanes[segment.lane], segment.text);
     }
   };
   const flushDraftLane = async (lane: DraftLaneState) => {
