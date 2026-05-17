@@ -495,6 +495,7 @@ export const dispatchTelegramMessage = async ({
       lastPartialText: "",
       hasStreamedMessage: false,
       finalized: false,
+      retained: false,
     };
   };
   const lanes: Record<LaneName, DraftLaneState> = {
@@ -523,6 +524,7 @@ export const dispatchTelegramMessage = async ({
     answerLane.lastPartialText = streamText;
     answerLane.hasStreamedMessage = true;
     answerLane.finalized = false;
+    answerLane.retained = false;
     answerLane.stream.update(streamText);
     if (options?.flush) {
       await answerLane.stream.flush();
@@ -531,6 +533,14 @@ export const dispatchTelegramMessage = async ({
   const progressDraftGate = createChannelProgressDraftGate({
     onStart: () => renderProgressDraft({ flush: true }),
   });
+  const startProgressDraftNow = async () => {
+    if (!answerLane.stream || streamMode !== "progress") {
+      return;
+    }
+    await enqueueDraftLaneEvent(async () => {
+      await progressDraftGate.startNow();
+    });
+  };
   const pushStreamToolProgress = async (
     line?: string,
     options?: { toolName?: string; startImmediately?: boolean },
@@ -562,6 +572,7 @@ export const dispatchTelegramMessage = async ({
       answerLane.lastPartialText = streamText;
       answerLane.hasStreamedMessage = true;
       answerLane.finalized = false;
+      answerLane.retained = false;
       answerLane.stream.update(streamText);
       return;
     }
@@ -635,6 +646,7 @@ export const dispatchTelegramMessage = async ({
     lane.lastPartialText = "";
     lane.hasStreamedMessage = false;
     lane.finalized = false;
+    lane.retained = false;
   };
   const rotateLaneForNewMessage = async (lane: DraftLaneState) => {
     if (!lane.hasStreamedMessage && typeof lane.stream?.messageId() !== "number") {
@@ -668,6 +680,7 @@ export const dispatchTelegramMessage = async ({
     }
     lane.hasStreamedMessage = true;
     lane.finalized = false;
+    lane.retained = false;
     if (
       lane.lastPartialText &&
       lane.lastPartialText.startsWith(text) &&
@@ -973,8 +986,17 @@ export const dispatchTelegramMessage = async ({
       payload: ReplyPayload,
       text: string,
     ): Promise<LaneDeliveryResult> => {
-      await answerLane.stream?.clear();
+      let retainedPreview = false;
+      if (answerLane.hasStreamedMessage || typeof answerLane.stream?.messageId() === "number") {
+        await (typeof answerLane.stream?.discard === "function"
+          ? answerLane.stream.discard()
+          : answerLane.stream?.stop());
+        retainedPreview = true;
+      } else {
+        await answerLane.stream?.clear();
+      }
       resetDraftLaneState(answerLane);
+      answerLane.retained = retainedPreview;
       const delivered = await sendPayload(applyTextToPayload(payload, text), { durable: true });
       answerLane.finalized = true;
       return delivered ? { kind: "sent" } : { kind: "skipped" };
@@ -1030,6 +1052,13 @@ export const dispatchTelegramMessage = async ({
         },
       },
     });
+    const onTelegramReplyStart =
+      answerLane.stream && streamMode === "progress"
+        ? async () => {
+            await replyPipeline.typingCallbacks?.onReplyStart?.();
+            await startProgressDraftNow();
+          }
+        : undefined;
 
     try {
       const turnResult = await runInboundReplyTurn({
@@ -1059,6 +1088,7 @@ export const dispatchTelegramMessage = async ({
                 cfg,
                 dispatcherOptions: {
                   ...replyPipeline,
+                  ...(onTelegramReplyStart ? { onReplyStart: onTelegramReplyStart } : {}),
                   beforeDeliver: async (payload) => payload,
                   deliver: async (payload, info) => {
                     if (isDispatchSuperseded()) {
@@ -1225,6 +1255,7 @@ export const dispatchTelegramMessage = async ({
                 replyOptions: {
                   skillFilter,
                   disableBlockStreaming,
+                  ...(onTelegramReplyStart ? { onReplyStart: onTelegramReplyStart } : {}),
                   onPartialReply:
                     answerLane.stream || reasoningLane.stream
                       ? (payload) =>
@@ -1405,6 +1436,25 @@ export const dispatchTelegramMessage = async ({
         }
         if (lane.finalized) {
           await stream.stop();
+        } else if (lane.retained) {
+          await stream.stop();
+          deliveryState.markDelivered();
+        } else if (
+          typeof stream.messageId() === "number" ||
+          typeof stream.visibleSinceMs?.() === "number" ||
+          stream.sendMayHaveLanded?.() === true
+        ) {
+          await (typeof stream.discard === "function" ? stream.discard() : stream.stop());
+          lane.retained = true;
+          deliveryState.markDelivered();
+        } else if (
+          lane.hasStreamedMessage ||
+          lane.lastPartialText.trim().length > 0 ||
+          (stream.previewRevision?.() ?? 0) > 0
+        ) {
+          await stream.stop();
+          lane.retained = true;
+          deliveryState.markDelivered();
         } else {
           await stream.clear();
         }
