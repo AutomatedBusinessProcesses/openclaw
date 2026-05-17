@@ -65,6 +65,8 @@ export type ReplyDispatcherOptions = {
     conversationType?: SilentReplyConversationType;
   };
   responsePrefix?: string;
+  /** Suffix appended only to final user-visible replies. */
+  responseSuffix?: string;
   transformReplyPayload?: (payload: ReplyPayload) => ReplyPayload | null;
   /** Static context for response prefix template interpolation. */
   responsePrefixContext?: ResponsePrefixContext;
@@ -100,11 +102,13 @@ type ReplyDispatcherWithTypingResult = {
 type NormalizeReplyPayloadInternalOptions = Pick<
   ReplyDispatcherOptions,
   | "responsePrefix"
+  | "responseSuffix"
   | "responsePrefixContext"
   | "responsePrefixContextProvider"
   | "onHeartbeatStrip"
   | "transformReplyPayload"
 > & {
+  kind: ReplyDispatchKind;
   onSkip?: (reason: NormalizeReplySkipReason) => void;
 };
 
@@ -117,6 +121,7 @@ function normalizeReplyPayloadInternal(
 
   return normalizeReplyPayload(payload, {
     responsePrefix: opts.responsePrefix,
+    responseSuffix: opts.kind === "final" ? opts.responseSuffix : undefined,
     responsePrefixContext: prefixContext,
     onHeartbeatStrip: opts.onHeartbeatStrip,
     transformReplyPayload: opts.transformReplyPayload,
@@ -219,10 +224,12 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
       silentFinalPayload ??
       normalizeReplyPayloadInternal(payload, {
         responsePrefix: options.responsePrefix,
+        responseSuffix: options.responseSuffix,
         responsePrefixContext: options.responsePrefixContext,
         responsePrefixContextProvider: options.responsePrefixContextProvider,
         transformReplyPayload: options.transformReplyPayload,
         onHeartbeatStrip: options.onHeartbeatStrip,
+        kind,
         onSkip: (reason) => options.onSkip?.(payload, { kind, reason }),
       });
     if (!normalized) {

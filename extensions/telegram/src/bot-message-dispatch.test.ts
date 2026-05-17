@@ -55,6 +55,9 @@ const wasSentByBot = vi.hoisted(() => vi.fn(() => false));
 const loadSessionStore = vi.hoisted(() => vi.fn());
 const resolveStorePath = vi.hoisted(() => vi.fn(() => "/tmp/sessions.json"));
 const generateTopicLabel = vi.hoisted(() => vi.fn());
+const readPendingModelChangeReceipts = vi.hoisted(() => vi.fn());
+const acknowledgeModelChangeReceipts = vi.hoisted(() => vi.fn());
+const formatModelChangeReceiptNotice = vi.hoisted(() => vi.fn());
 const describeStickerImage = vi.hoisted(() => vi.fn(async () => null));
 const loadModelCatalog = vi.hoisted(() => vi.fn(async () => ({})));
 const findModelInCatalog = vi.hoisted(() => vi.fn(() => null));
@@ -116,6 +119,12 @@ vi.mock("./bot-message-dispatch.runtime.js", () => ({
   resolveMarkdownTableMode,
   resolveSessionStoreEntry,
   resolveStorePath,
+}));
+
+vi.mock("./model-change-receipts.js", () => ({
+  readPendingModelChangeReceipts,
+  acknowledgeModelChangeReceipts,
+  formatModelChangeReceiptNotice,
 }));
 
 vi.mock("./bot-message-dispatch.agent.runtime.js", () => ({
@@ -199,6 +208,9 @@ describe("dispatchTelegramMessage draft streaming", () => {
     loadSessionStore.mockReset();
     resolveStorePath.mockReset();
     generateTopicLabel.mockReset();
+    readPendingModelChangeReceipts.mockReset();
+    acknowledgeModelChangeReceipts.mockReset();
+    formatModelChangeReceiptNotice.mockReset();
     getAgentScopedMediaLocalRoots.mockClear();
     resolveChunkMode.mockClear();
     resolveMarkdownTableMode.mockClear();
@@ -234,6 +246,8 @@ describe("dispatchTelegramMessage draft streaming", () => {
       created: true,
     });
     enqueueSystemEvent.mockResolvedValue(undefined);
+    readPendingModelChangeReceipts.mockResolvedValue([]);
+    formatModelChangeReceiptNotice.mockReturnValue("");
     buildModelsProviderData.mockResolvedValue({
       byProvider: new Map<string, Set<string>>(),
       providers: [],
@@ -548,6 +562,27 @@ describe("dispatchTelegramMessage draft streaming", () => {
       }),
     );
     expect(deliverReplies).not.toHaveBeenCalled();
+  });
+
+  it("sends a control-plane model receipt before the model reply", async () => {
+    const bot = createBot();
+    const sendMessage = vi.spyOn(bot.api, "sendMessage");
+    const receipts = [{ id: "receipt-1", ref: "openrouter/deepseek/deepseek-v4-flash" }];
+    readPendingModelChangeReceipts.mockResolvedValue(receipts);
+    formatModelChangeReceiptNotice.mockReturnValue("OpenClaw model changed: Pro -> Flash");
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
+      await dispatcherOptions.deliver({ text: "Hello" }, { kind: "final" });
+      return { queuedFinal: true };
+    });
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext(), bot });
+
+    expect(sendMessage).toHaveBeenCalledWith(123, "OpenClaw model changed: Pro -> Flash", {
+      message_thread_id: 777,
+    });
+    expect(acknowledgeModelChangeReceipts).toHaveBeenCalledWith(["receipt-1"]);
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
   });
 
   it("queues media-only final Telegram replies through outbound delivery when available", async () => {

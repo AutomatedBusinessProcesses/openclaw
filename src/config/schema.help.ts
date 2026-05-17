@@ -1681,6 +1681,8 @@ export const FIELD_HELP: Record<string, string> = {
     'Controls visible source replies across direct, group, and channel conversations. "message_tool" keeps normal final replies private and requires message(action=send) for visible output; "automatic" posts normal replies as before.',
   "messages.responsePrefix":
     "Prefix text prepended to outbound assistant replies before sending to channels. Use for lightweight branding/context tags and avoid long prefixes that reduce content density.",
+  "messages.responseSuffix":
+    "Suffix text appended to final outbound assistant replies before sending to channels. Use for mandatory completion markers such as END; silent and heartbeat control replies are not suffixed.",
   "messages.groupChat":
     "Group-message handling controls including mention triggers and history window sizing. Keep mention patterns narrow so group channels do not trigger on every message.",
   "messages.groupChat.mentionPatterns":

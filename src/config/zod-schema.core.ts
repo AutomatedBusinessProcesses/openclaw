@@ -484,6 +484,7 @@ export const ReplyRuntimeConfigSchemaShape = {
   blockStreaming: z.boolean().optional(),
   blockStreamingCoalesce: BlockStreamingCoalesceSchema.optional(),
   responsePrefix: z.string().optional(),
+  responseSuffix: z.string().optional(),
   mediaMaxMb: z.number().positive().optional(),
 };
 

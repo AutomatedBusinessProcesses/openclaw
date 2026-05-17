@@ -134,6 +134,31 @@ describe("createReplyDispatcher", () => {
     expect(onHeartbeatStrip).toHaveBeenCalledTimes(2);
   });
 
+  it("applies responseSuffix only to final visible replies", async () => {
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = createReplyDispatcher({
+      deliver,
+      responseSuffix: "\n\nEND",
+    });
+
+    expect(dispatcher.sendToolResult({ text: "tool" })).toBe(true);
+    expect(dispatcher.sendBlockReply({ text: "block" })).toBe(true);
+    expect(dispatcher.sendFinalReply({ text: "final" })).toBe(true);
+    expect(dispatcher.sendFinalReply({ text: "already\n\nEND" })).toBe(true);
+    expect(dispatcher.sendFinalReply({ text: "FRIEND" })).toBe(true);
+    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(false);
+
+    await dispatcher.waitForIdle();
+
+    expect(deliver.mock.calls.map((call) => call[0].text)).toEqual([
+      "tool",
+      "block",
+      "final\n\nEND",
+      "already\n\nEND",
+      "FRIEND\n\nEND",
+    ]);
+  });
+
   it("avoids double-prefixing and keeps media when heartbeat is the only text", async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
     const dispatcher = createReplyDispatcher({

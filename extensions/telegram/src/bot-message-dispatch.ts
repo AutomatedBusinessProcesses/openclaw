@@ -64,7 +64,11 @@ import {
 } from "./bot-message-dispatch.runtime.js";
 import type { TelegramBotOptions } from "./bot.types.js";
 import { deliverReplies, emitInternalMessageSentHook } from "./bot/delivery.js";
-import { getTelegramTextParts, resolveTelegramReplyId } from "./bot/helpers.js";
+import {
+  buildTelegramThreadParams,
+  getTelegramTextParts,
+  resolveTelegramReplyId,
+} from "./bot/helpers.js";
 import {
   addTelegramNativeQuoteCandidate,
   buildTelegramNativeQuoteCandidate,
@@ -90,6 +94,11 @@ import {
   type LaneName,
 } from "./lane-delivery.js";
 import {
+  acknowledgeModelChangeReceipts,
+  formatModelChangeReceiptNotice,
+  readPendingModelChangeReceipts,
+} from "./model-change-receipts.js";
+import {
   createTelegramReasoningStepState,
   splitTelegramReasoningText,
 } from "./reasoning-lane-coordinator.js";
@@ -103,6 +112,32 @@ const silentReplyDispatchLogger = createSubsystemLogger("telegram/silent-reply-d
 
 /** Minimum chars before sending first streaming message (improves push notification UX) */
 const DRAFT_MIN_INITIAL_CHARS = 30;
+
+async function sendPendingModelChangeReceipt(params: {
+  bot: Bot;
+  chatId: string | number;
+  threadSpec: TelegramMessageContext["threadSpec"];
+  runtime: RuntimeEnv;
+}) {
+  const receipts = await readPendingModelChangeReceipts();
+  if (receipts.length === 0) {
+    return;
+  }
+  const text = formatModelChangeReceiptNotice(receipts);
+  if (!text) {
+    return;
+  }
+  try {
+    await params.bot.api.sendMessage(
+      params.chatId,
+      text,
+      buildTelegramThreadParams(params.threadSpec),
+    );
+    await acknowledgeModelChangeReceipts(receipts.map((receipt) => receipt.id));
+  } catch (err) {
+    params.runtime.error?.(danger(`telegram model-change receipt failed: ${String(err)}`));
+  }
+}
 
 async function resolveStickerVisionSupport(cfg: OpenClawConfig, agentId: string) {
   try {
@@ -968,6 +1003,13 @@ export const dispatchTelegramMessage = async ({
     if (statusReactionController) {
       void statusReactionController.setThinking();
     }
+
+    await sendPendingModelChangeReceipt({
+      bot,
+      chatId,
+      threadSpec,
+      runtime,
+    });
 
     const { onModelSelected, ...replyPipeline } = (
       telegramDeps.createChannelMessageReplyPipeline ?? createChannelMessageReplyPipeline

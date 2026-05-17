@@ -21,6 +21,7 @@ export type NormalizeReplySkipReason = "empty" | "silent" | "heartbeat";
 
 export type NormalizeReplyOptions = {
   responsePrefix?: string;
+  responseSuffix?: string;
   applyChannelTransforms?: boolean;
   /** Context for template variable interpolation in responsePrefix */
   responsePrefixContext?: ResponsePrefixContext;
@@ -30,6 +31,19 @@ export type NormalizeReplyOptions = {
   transformReplyPayload?: (payload: ReplyPayload) => ReplyPayload | null;
   onSkip?: (reason: NormalizeReplySkipReason) => void;
 };
+
+function hasTerminalResponseSuffix(text: string, responseSuffix: string): boolean {
+  const textEnd = text.trimEnd();
+  const suffixEnd = responseSuffix.trimEnd();
+  const marker = suffixEnd.trim();
+  if (!marker) {
+    return true;
+  }
+  if (/^\s/u.test(suffixEnd) && textEnd.endsWith(suffixEnd)) {
+    return true;
+  }
+  return textEnd === marker || textEnd.endsWith(`\n${marker}`);
+}
 
 export function normalizeReplyPayload(
   payload: ReplyPayload,
@@ -121,6 +135,13 @@ export function normalizeReplyPayload(
     !text.startsWith(effectivePrefix)
   ) {
     text = `${effectivePrefix} ${text}`;
+  }
+
+  const responseSuffix = opts.responseSuffix;
+  if (responseSuffix && text) {
+    if (!hasTerminalResponseSuffix(text, responseSuffix)) {
+      text = `${text.trimEnd()}${responseSuffix}`;
+    }
   }
 
   enrichedPayload = { ...enrichedPayload, text };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import { resolveAckReaction } from "./identity.js";
+import { resolveAckReaction, resolveResponseSuffix } from "./identity.js";
 
 describe("resolveAckReaction", () => {
   it("prefers account-level overrides", () => {
@@ -75,5 +75,29 @@ describe("resolveAckReaction", () => {
     };
 
     expect(resolveAckReaction(cfg, "main", { channel: "telegram" })).toBe("");
+  });
+});
+
+describe("resolveResponseSuffix", () => {
+  it("prefers account then channel then global response suffixes", () => {
+    const cfg: OpenClawConfig = {
+      messages: { responseSuffix: "\n\nGLOBAL" },
+      channels: {
+        telegram: {
+          responseSuffix: "\n\nCHANNEL",
+          accounts: {
+            ops: { responseSuffix: "\n\nACCOUNT" },
+          },
+        },
+      },
+    };
+
+    expect(resolveResponseSuffix(cfg, { channel: "telegram", accountId: "ops" })).toBe(
+      "\n\nACCOUNT",
+    );
+    expect(resolveResponseSuffix(cfg, { channel: "telegram", accountId: "other" })).toBe(
+      "\n\nCHANNEL",
+    );
+    expect(resolveResponseSuffix(cfg, { channel: "discord" })).toBe("\n\nGLOBAL");
   });
 });

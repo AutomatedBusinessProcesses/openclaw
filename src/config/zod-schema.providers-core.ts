@@ -358,6 +358,7 @@ export const TelegramAccountSchemaBase = z
     linkPreview: z.boolean().optional(),
     silentErrorReplies: z.boolean().optional(),
     responsePrefix: z.string().optional(),
+    responseSuffix: z.string().optional(),
     ackReaction: z.string().optional(),
     errorPolicy: TelegramErrorPolicySchema,
     errorCooldownMs: z.number().int().nonnegative().optional(),
