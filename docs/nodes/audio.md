@@ -158,6 +158,9 @@ Note: Binary detection is best-effort across macOS/Linux/Windows; ensure the CLI
 - OpenAI auto default is `gpt-4o-mini-transcribe`; set `model: "gpt-4o-transcribe"` for higher accuracy.
 - Use `tools.media.audio.attachments` to process multiple voice notes (`mode: "all"` + `maxAttachments`).
 - Transcript is available to templates as `{{Transcript}}`.
+- The bundled `transcribe` skill exposes `/transcribe` in local-only setups so
+  an operator can ask for the current voice note transcript without sending
+  audio to a provider.
 - `tools.media.audio.echoTranscript` is off by default; enable it to send transcript confirmation back to the originating chat before agent processing.
 - `tools.media.audio.echoFormat` customizes the echo text (placeholder: `{transcript}`).
 - CLI stdout is capped (5MB); keep CLI output concise.

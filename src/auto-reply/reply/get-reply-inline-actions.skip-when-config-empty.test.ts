@@ -573,6 +573,54 @@ describe("handleInlineActions", () => {
     );
   });
 
+  it("preserves current audio transcripts when rewriting skill commands", async () => {
+    const typing = createTypingController();
+    handleCommandsMock.mockResolvedValue({ shouldContinue: false, reply: { text: "done" } });
+    const ctx = buildTestCtx({
+      Body: "/transcribe",
+      CommandBody: "/transcribe",
+      Transcript: "hello from local whisper",
+    });
+    const skillCommands: SkillCommandSpec[] = [
+      {
+        name: "transcribe",
+        skillName: "transcribe",
+        description: "Local-only transcription",
+      },
+    ];
+
+    const result = await handleInlineActions(
+      createHandleInlineActionsInput({
+        ctx,
+        typing,
+        cleanedBody: "/transcribe",
+        command: {
+          isAuthorizedSender: true,
+          rawBodyNormalized: "/transcribe",
+          commandBodyNormalized: "/transcribe",
+        },
+        overrides: {
+          allowTextCommands: true,
+          cfg: { commands: { text: true } },
+          skillCommands,
+        },
+      }),
+    );
+
+    expect(result).toEqual({ kind: "reply", reply: { text: "done" } });
+    expect(ctx.Body).toContain('Use the "transcribe" skill for this request.');
+    expect(ctx.Body).toContain(
+      "Untrusted audio transcript from the current message:\nhello from local whisper",
+    );
+    expect(handleCommandsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: expect.objectContaining({
+          Body: expect.stringContaining("hello from local whisper"),
+        }),
+      }),
+    );
+  });
+
   it("passes requesterAgentIdOverride into inline tool runtimes", async () => {
     const typing = createTypingController();
     const toolExecute = vi.fn(async () => ({ text: "spawned" }));

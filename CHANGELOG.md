@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Skills/audio: replace the local voice policy skill with `/transcribe`, a local-only transcript skill that preserves the current message transcript when skill commands rewrite the request.
 - Chat commands: add `/skills` to list the active agent's visible skill commands and descriptions without asking the model to remember them.
 - Telegram/streaming: start progress draft previews as soon as a reply begins, retain visible working drafts when final delivery falls back to a normal send, and flush pending draft text instead of deleting it when a turn ends without a final response.
 - Telegram/streaming: render progress-mode previews as an append-only working draft code block that keeps reply start, tool/progress, and visible assistant draft fragments until the final reply arrives.

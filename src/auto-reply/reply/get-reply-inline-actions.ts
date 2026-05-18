@@ -160,6 +160,14 @@ function extractBlockedToolReason(result: unknown): string | null {
   return typeof reason === "string" && reason.trim() ? reason.trim() : null;
 }
 
+function buildSkillInvocationTranscriptContext(ctx: MsgContext): string | null {
+  const transcript = normalizeOptionalString(ctx.Transcript);
+  if (!transcript) {
+    return null;
+  }
+  return `Untrusted audio transcript from the current message:\n${transcript}`;
+}
+
 export async function handleInlineActions(params: {
   ctx: MsgContext;
   sessionCtx: TemplateContext;
@@ -347,6 +355,7 @@ export async function handleInlineActions(params: {
       : [
           `Use the "${skillInvocation.command.skillName}" skill for this request.`,
           skillInvocation.args ? `User input:\n${skillInvocation.args}` : null,
+          buildSkillInvocationTranscriptContext(ctx),
         ]
           .filter((entry): entry is string => Boolean(entry))
           .join("\n\n");
