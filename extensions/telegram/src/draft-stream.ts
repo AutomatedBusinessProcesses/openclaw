@@ -85,6 +85,12 @@ function findTelegramDraftChunkLength(
   return best;
 }
 
+function isAppendOnlyDraftUpdate(previousText: string, nextText: string): boolean {
+  return (
+    previousText.length === 0 || nextText === previousText || nextText.startsWith(previousText)
+  );
+}
+
 export function createTelegramDraftStream(params: {
   api: Bot["api"];
   chatId: Parameters<Bot["api"]["sendMessage"]>[0];
@@ -214,6 +220,7 @@ export function createTelegramDraftStream(params: {
         textSnapshot: renderedText,
         parseMode: renderedParseMode,
         visibleSinceMs,
+        retain: true,
       });
       return true;
     }
@@ -230,9 +237,44 @@ export function createTelegramDraftStream(params: {
     if (!trimmed) {
       return false;
     }
+    if (
+      typeof streamMessageId === "number" &&
+      deliveredTextOffset > 0 &&
+      lastDeliveredText.length > 0 &&
+      !trimmed.startsWith(lastDeliveredText.slice(0, deliveredTextOffset))
+    ) {
+      params.onSupersededPreview?.({
+        messageId: streamMessageId,
+        textSnapshot: lastSentText,
+        parseMode: lastSentParseMode,
+        visibleSinceMs: streamVisibleSinceMs,
+        retain: true,
+      });
+      resetStreamToNewMessage({ keepPending: true });
+      return await sendOrEditStreamMessage(trimmed);
+    }
     const currentText = trimmed.slice(deliveredTextOffset).trimStart();
     if (!currentText) {
       return false;
+    }
+    const previousCurrentText =
+      lastDeliveredText.length > deliveredTextOffset
+        ? lastDeliveredText.slice(deliveredTextOffset).trimStart()
+        : "";
+    if (
+      typeof streamMessageId === "number" &&
+      previousCurrentText &&
+      !isAppendOnlyDraftUpdate(previousCurrentText, currentText)
+    ) {
+      params.onSupersededPreview?.({
+        messageId: streamMessageId,
+        textSnapshot: lastSentText,
+        parseMode: lastSentParseMode,
+        visibleSinceMs: streamVisibleSinceMs,
+        retain: true,
+      });
+      resetStreamToNewMessage({ keepPending: true, resetOffset: false });
+      return await sendOrEditStreamMessage(trimmed);
     }
     const rendered = renderTelegramDraftPreview(currentText, params.renderText);
     const renderedText = rendered.text.trimEnd();
@@ -339,13 +381,7 @@ export function createTelegramDraftStream(params: {
       },
     });
     if (typeof messageId === "number" && Number.isFinite(messageId)) {
-      try {
-        await params.api.deleteMessage(chatId, messageId);
-        params.log?.(`telegram stream preview deleted (chat=${chatId}, message=${messageId})`);
-      } catch (err) {
-        params.warn?.(`telegram stream preview cleanup failed: ${formatErrorMessage(err)}`);
-      }
-      return;
+      params.log?.(`telegram stream preview retained (chat=${chatId}, message=${messageId})`);
     }
   };
 

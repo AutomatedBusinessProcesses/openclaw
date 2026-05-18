@@ -123,7 +123,7 @@ Canonical key: `channels.<channel>.streaming`
 Modes:
 
 - `off`: disable preview streaming.
-- `partial`: single preview that is replaced with latest text.
+- `partial`: single preview updated with the latest text; Telegram starts a new preview instead of overwriting unrelated visible text.
 - `block`: preview updates in chunked/appended steps.
 - `progress`: progress/status preview during generation, final answer at completion.
 
@@ -159,12 +159,12 @@ Legacy key migration:
 
 Telegram:
 
-- Uses `sendMessage` + `editMessageText` preview updates across DMs and group/topics.
-- Final text edits the active preview in place; long finals reuse that message for the first chunk and send only the remaining chunks.
-- `progress` mode keeps tool progress in an editable status draft, clears that draft at completion, and sends the final answer through normal delivery.
-- If the final edit fails before the completed text is confirmed, OpenClaw uses normal final delivery and cleans up the stale preview.
+- Uses `sendMessage` + append-only `editMessageText` preview updates across DMs and group/topics.
+- Final text edits the active preview in place only when it preserves already-visible text; otherwise OpenClaw starts a new preview and leaves the earlier one visible.
+- `progress` mode keeps tool progress in a visible status draft, retains that draft at completion, and sends the final answer through normal delivery.
+- If the final edit fails before the completed text is confirmed, OpenClaw uses normal final delivery and retains the stale preview.
 - Preview streaming is skipped when Telegram block streaming is explicitly enabled (to avoid double-streaming).
-- `/reasoning stream` can write reasoning to a transient preview that is deleted after final delivery.
+- `/reasoning stream` can write reasoning to a retained preview that stays visible after final delivery.
 
 Discord:
 

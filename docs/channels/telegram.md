@@ -278,8 +278,8 @@ curl "https://api.telegram.org/bot<bot_token>/getUpdates"
     Requirement:
 
     - `channels.telegram.streaming` is `off | partial | block | progress` (default: `partial`)
-    - `progress` keeps one editable status draft for tool progress, clears it at completion, and sends the final answer as a normal message
-    - `streaming.preview.toolProgress` controls whether tool/progress updates reuse the same edited preview message (default: `true` when preview streaming is active)
+    - `progress` keeps one visible status draft for tool progress, retains it at completion, and sends the final answer as a normal message
+    - `streaming.preview.toolProgress` controls whether tool/progress updates can append into the same preview message (default: `true` when preview streaming is active)
     - `streaming.preview.commandText` controls command/exec detail inside those tool-progress lines: `raw` (default, preserves released behavior) or `status` (tool label only)
     - legacy `channels.telegram.streamMode` and boolean `streaming` values are detected; run `openclaw doctor --fix` to migrate them to `channels.telegram.streaming.mode`
 
@@ -343,19 +343,19 @@ curl "https://api.telegram.org/bot<bot_token>/getUpdates"
 
     For text-only replies:
 
-    - short DM/group/topic previews: OpenClaw keeps the same preview message and performs the final edit in place
+    - short DM/group/topic previews: OpenClaw keeps the same preview message only while updates are append-only; unrelated replacement text starts a new preview message instead of overwriting visible text
     - long text finals that split into multiple Telegram messages reuse the existing preview as the first final chunk when possible, then send only the remaining chunks
-    - progress-mode finals clear the status draft and use normal final delivery instead of editing the draft into the answer
-    - if the final edit fails before the completed text is confirmed, OpenClaw uses normal final delivery and cleans up the stale preview
+    - progress-mode finals retain the status draft and use normal final delivery instead of editing the draft into the answer
+    - if the final edit fails before the completed text is confirmed, OpenClaw uses normal final delivery and retains the stale preview
 
-    For complex replies (for example media payloads), OpenClaw falls back to normal final delivery and then cleans up the preview message.
+    For complex replies (for example media payloads), OpenClaw falls back to normal final delivery and retains the preview message.
 
     Preview streaming is separate from block streaming. When block streaming is explicitly enabled for Telegram, OpenClaw skips the preview stream to avoid double-streaming.
 
     Telegram-only reasoning stream:
 
     - `/reasoning stream` sends reasoning to the live preview while generating
-    - the reasoning preview is deleted after final delivery; use `/reasoning on` when reasoning should remain visible
+    - the reasoning preview is retained after final delivery; use `/reasoning on` when reasoning should also be included in the final answer
     - final answer is sent without reasoning text
 
   </Accordion>

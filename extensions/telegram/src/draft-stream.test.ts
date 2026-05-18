@@ -78,6 +78,38 @@ describe("createTelegramDraftStream", () => {
     expect(api.editMessageText).toHaveBeenCalledWith(123, 17, "Hello again");
   });
 
+  it("starts a new preview instead of replacing visible text with unrelated text", async () => {
+    const api = createMockDraftApi();
+    api.sendMessage
+      .mockResolvedValueOnce({ message_id: 17 })
+      .mockResolvedValueOnce({ message_id: 42 });
+    const onSupersededPreview = vi.fn();
+    const stream = createDraftStream(api, { onSupersededPreview });
+
+    stream.update("Email: aj@example.com");
+    await stream.flush();
+
+    stream.update("Beautiful. Login page fully loaded. Let me sign in.");
+    await stream.flush();
+
+    expect(api.editMessageText).not.toHaveBeenCalled();
+    expect(api.deleteMessage).not.toHaveBeenCalled();
+    expect(onSupersededPreview).toHaveBeenCalledWith({
+      messageId: 17,
+      textSnapshot: "Email: aj@example.com",
+      parseMode: undefined,
+      visibleSinceMs: expect.any(Number),
+      retain: true,
+    });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(
+      2,
+      123,
+      "Beautiful. Login page fully loaded. Let me sign in.",
+      undefined,
+    );
+    expect(stream.messageId()).toBe(42);
+  });
+
   it("waits for in-flight updates before final flush edit", async () => {
     let resolveSend: ((value: { message_id: number }) => void) | undefined;
     const firstSend = new Promise<{ message_id: number }>((resolve) => {
@@ -96,6 +128,33 @@ describe("createTelegramDraftStream", () => {
     await flushPromise;
 
     expect(api.editMessageText).toHaveBeenCalledWith(123, 17, "Hello final");
+  });
+
+  it("does not overwrite a preview when an unrelated update arrives during first send", async () => {
+    let resolveSend: ((value: { message_id: number }) => void) | undefined;
+    const firstSend = new Promise<{ message_id: number }>((resolve) => {
+      resolveSend = resolve;
+    });
+    const api = createMockDraftApi();
+    api.sendMessage.mockReturnValueOnce(firstSend).mockResolvedValueOnce({ message_id: 42 });
+    const stream = createDraftStream(api);
+
+    stream.update("Email: aj@example.com");
+    await vi.waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(1));
+    stream.update("Beautiful. Login page fully loaded. Let me sign in.");
+    const flushPromise = stream.flush();
+
+    resolveSend?.({ message_id: 17 });
+    await flushPromise;
+
+    expect(api.editMessageText).not.toHaveBeenCalled();
+    expect(api.deleteMessage).not.toHaveBeenCalled();
+    expect(api.sendMessage).toHaveBeenNthCalledWith(
+      2,
+      123,
+      "Beautiful. Login page fully loaded. Let me sign in.",
+      undefined,
+    );
   });
 
   it("omits message_thread_id for general topic id", async () => {
@@ -219,7 +278,7 @@ describe("createTelegramDraftStream", () => {
     expect(api.sendMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("deletes message preview on clear after finalization", async () => {
+  it("retains message preview on clear after finalization", async () => {
     const api = createMockDraftApi();
     const stream = createThreadedDraftStream(api, { id: 42, scope: "dm" });
 
@@ -231,7 +290,7 @@ describe("createTelegramDraftStream", () => {
 
     expect(api.sendMessage).toHaveBeenCalledWith(123, "Hello", { message_thread_id: 42 });
     expect(api.editMessageText).toHaveBeenCalledWith(123, 17, "Hello again");
-    expect(api.deleteMessage).toHaveBeenCalledWith(123, 17);
+    expect(api.deleteMessage).not.toHaveBeenCalled();
   });
 
   it("creates new message after forceNewMessage is called", async () => {
@@ -264,7 +323,7 @@ describe("createTelegramDraftStream", () => {
     await stream.flush();
 
     await stream.clear();
-    expect(api.deleteMessage).toHaveBeenCalledWith(123, 17);
+    expect(api.deleteMessage).not.toHaveBeenCalled();
 
     stream.forceNewMessage();
     stream.update("Next preview");
@@ -326,6 +385,7 @@ describe("createTelegramDraftStream", () => {
       textSnapshot: "Message A partial",
       parseMode: undefined,
       visibleSinceMs: expect.any(Number),
+      retain: true,
     });
     expect(api.sendMessage).toHaveBeenCalledTimes(2);
     expect(api.sendMessage).toHaveBeenNthCalledWith(2, 123, "Message B partial", undefined);
