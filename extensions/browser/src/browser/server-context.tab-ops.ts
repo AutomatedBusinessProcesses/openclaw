@@ -281,6 +281,10 @@ export function createProfileTabOps({
 
   const openTab = async (url: string, opts?: { label?: string }): Promise<BrowserTab> => {
     const ssrfPolicyOpts = getNavigationPolicy();
+    const needsInspectableRedirects = requiresInspectableBrowserNavigationRedirectsForUrl(
+      url,
+      state().resolved.ssrfPolicy,
+    );
 
     if (capabilities.usesChromeMcp) {
       await assertBrowserNavigationAllowed({ url, ...ssrfPolicyOpts });
@@ -292,7 +296,7 @@ export function createProfileTabOps({
       return assignTabAlias({ profileState, tab: page, label: opts?.label });
     }
 
-    if (capabilities.usesPersistentPlaywright) {
+    if (capabilities.usesPersistentPlaywright || needsInspectableRedirects) {
       const mod = await getPwAiModule({ mode: "strict" });
       const createPageViaPlaywright = (mod as Partial<PwAiModule> | null)?.createPageViaPlaywright;
       if (typeof createPageViaPlaywright === "function") {
@@ -317,7 +321,7 @@ export function createProfileTabOps({
       }
     }
 
-    if (requiresInspectableBrowserNavigationRedirectsForUrl(url, state().resolved.ssrfPolicy)) {
+    if (needsInspectableRedirects) {
       throw new InvalidBrowserNavigationUrlError(
         "Navigation blocked: strict browser SSRF policy requires Playwright-backed redirect-hop inspection",
       );

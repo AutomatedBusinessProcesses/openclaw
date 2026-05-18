@@ -235,6 +235,40 @@ describe("browser remote profile fallback and attachOnly behavior", () => {
     });
   });
 
+  it("uses Playwright for managed loopback tab opens when strict redirects need inspection", async () => {
+    const createPageViaPlaywright = vi.fn(async () => ({
+      targetId: "T_STRICT",
+      title: "Strict Tab",
+      url: "https://example.com",
+      type: "page" as const,
+    }));
+    vi.spyOn(deps.pwAiModule, "getPwAiModule").mockResolvedValue({
+      createPageViaPlaywright,
+    } as unknown as Awaited<ReturnType<typeof deps.pwAiModule.getPwAiModule>>);
+    const createTargetViaCdp = vi
+      .spyOn(deps.cdpModule, "createTargetViaCdp")
+      .mockRejectedValue(new Error("raw CDP should not be used"));
+    const state = deps.makeState("openclaw");
+    state.resolved.ssrfPolicy = {
+      dangerouslyAllowPrivateNetwork: false,
+      allowedHostnames: ["example.com"],
+    };
+    const ctx = deps.createBrowserRouteContext({ getState: () => state });
+
+    const opened = await ctx.forProfile("openclaw").openTab("https://example.com");
+
+    expect(opened.targetId).toBe("T_STRICT");
+    expect(createPageViaPlaywright).toHaveBeenCalledWith({
+      cdpUrl: "http://127.0.0.1:18800",
+      url: "https://example.com",
+      ssrfPolicy: {
+        dangerouslyAllowPrivateNetwork: false,
+        allowedHostnames: ["example.com"],
+      },
+    });
+    expect(createTargetViaCdp).not.toHaveBeenCalled();
+  });
+
   it("uses the remote HTTP timeout for /json/new fallback tab opens", async () => {
     vi.spyOn(deps.pwAiModule, "getPwAiModule").mockResolvedValue(null);
     vi.spyOn(deps.cdpModule, "createTargetViaCdp").mockRejectedValue(
