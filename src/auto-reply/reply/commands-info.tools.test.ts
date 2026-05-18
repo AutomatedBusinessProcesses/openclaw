@@ -156,9 +156,11 @@ describe("handleToolsCommand", () => {
     expect(result?.reply?.text).toContain("Available tools");
     expect(result?.reply?.text).toContain("Profile: coding");
     expect(result?.reply?.text).toContain("Built-in tools");
-    expect(result?.reply?.text).toContain("exec");
+    expect(result?.reply?.text).toContain("Exec - Best use: Run shell commands");
     expect(result?.reply?.text).toContain("Connected tools");
-    expect(result?.reply?.text).toContain("docs_lookup (docs)");
+    expect(result?.reply?.text).toContain(
+      "Docs Lookup (docs_lookup) - Best use: Search internal documentation",
+    );
     expect(result?.reply?.text).not.toContain("unavailable right now");
     expect(resolveToolsMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -259,10 +261,14 @@ describe("handleToolsCommand", () => {
       true,
     );
 
-    expect(result?.reply?.text).toContain("What this agent can use right now:");
+    expect(result?.reply?.text).toContain(
+      "What this agent can use right now and the best use for each tool:",
+    );
     expect(result?.reply?.text).toContain("Profile: coding");
-    expect(result?.reply?.text).toContain("Exec - Run shell commands");
-    expect(result?.reply?.text).toContain("Docs Lookup - Search internal documentation");
+    expect(result?.reply?.text).toContain("Exec - Best use: Run shell commands");
+    expect(result?.reply?.text).toContain(
+      "Docs Lookup (docs_lookup) - Best use: Search internal documentation",
+    );
   });
 
   it("accepts explicit compact mode", async () => {
@@ -273,7 +279,7 @@ describe("handleToolsCommand", () => {
     );
 
     expect(result?.reply?.text).toContain("exec");
-    expect(result?.reply?.text).toContain("Use /tools verbose for descriptions.");
+    expect(result?.reply?.text).toContain("Use /tools for descriptions and best uses.");
   });
 
   it("ignores unauthorized senders", async () => {

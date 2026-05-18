@@ -7,6 +7,7 @@ Docs: https://docs.openclaw.ai
 ### Changes
 
 - Skills/audio: replace the local voice policy skill with `/transcribe`, a local-only transcript skill that preserves the current message transcript when skill commands rewrite the request.
+- Chat commands: make `/tools` show available runtime tools with descriptions and best-use guidance by default, leaving `/tools compact` for the names-only view.
 - Browser/SSRF: route strict local managed new-tab opens through Playwright redirect-hop inspection, so allowed hostname navigation works without enabling private-network browser access.
 - Chat commands: add `/skills` to list the active agent's visible skill commands and descriptions without asking the model to remember them.
 - Telegram/actions: block model/tool `deleteMessage` calls against OpenClaw-sent messages and record draft preview sends in the sent-message cache.

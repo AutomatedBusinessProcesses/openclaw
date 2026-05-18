@@ -12,7 +12,9 @@ describe("tools product copy", () => {
       commands: { config: false, debug: false },
     } as unknown as OpenClawConfig;
 
-    expect(buildCommandsMessage(cfg)).toContain("/tools - List available runtime tools.");
+    expect(buildCommandsMessage(cfg)).toContain(
+      "/tools - List available runtime tools and best uses.",
+    );
     expect(buildCommandsMessage(cfg)).toContain("More: /tools for available capabilities");
     expect(buildHelpMessage(cfg)).toContain("/tools for available capabilities");
     expect(buildHelpMessage(cfg)).toContain("/tasks");
@@ -68,7 +70,7 @@ describe("tools product copy", () => {
     expect(text).toContain("exec, web_search");
     expect(text).toContain("Connected tools");
     expect(text).toContain("docs_lookup (docs)");
-    expect(text).toContain("Use /tools verbose for descriptions.");
+    expect(text).toContain("Use /tools for descriptions and best uses.");
     expect(text).not.toContain("unavailable right now");
   });
 
@@ -131,10 +133,12 @@ describe("tools product copy", () => {
       { verbose: true },
     );
 
-    expect(text).toContain("What this agent can use right now:");
+    expect(text).toContain("What this agent can use right now and the best use for each tool:");
     expect(text).toContain("Profile: minimal");
-    expect(text).toContain("Exec - Run shell commands");
-    expect(text).toContain("Tool availability depends on this agent's configuration.");
+    expect(text).toContain("Exec - Best use: Run shell commands");
+    expect(text).toContain(
+      "Tool availability depends on this agent's configuration and current chat permissions.",
+    );
     expect(text).not.toContain("unavailable right now");
   });
 
@@ -165,7 +169,7 @@ describe("tools product copy", () => {
     );
 
     expect(text).toContain(
-      'Cron - Manage Gateway cron jobs and send wake events. Use this for reminders, "check back later" requests, delayed follow-ups, and recurring tasks. Do not emulate scheduling with exec sleep or process polling.',
+      'Cron - Best use: Manage Gateway cron jobs and send wake events. Use this for reminders, "check back later" requests, delayed follow-ups, and recurring tasks. Do not emulate scheduling with exec sleep or process polling.',
     );
     expect(text).not.toContain("ACTIONS:");
     expect(text).not.toContain("JOB SCHEMA:");

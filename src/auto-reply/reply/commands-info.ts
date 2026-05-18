@@ -124,10 +124,10 @@ export const handleToolsCommand: CommandHandler = async (params, allowTextComman
   }
   const normalized = params.command.commandBodyNormalized;
   let verbose = false;
-  if (normalized === "/tools" || normalized === "/tools compact") {
-    verbose = false;
-  } else if (normalized === "/tools verbose") {
+  if (normalized === "/tools" || normalized === "/tools verbose") {
     verbose = true;
+  } else if (normalized === "/tools compact") {
+    verbose = false;
   } else if (normalized.startsWith("/tools ")) {
     return { shouldContinue: false, reply: { text: "Usage: /tools [compact|verbose]" } };
   } else {

@@ -47,6 +47,11 @@ function formatVerboseToolDescription(tool: ToolsMessageItem): string {
   });
 }
 
+function formatVerboseToolEntry(tool: ToolsMessageItem): string {
+  const idLabel = tool.id && normalizeToolName(tool.name) !== tool.id ? ` (${tool.id})` : "";
+  return `${tool.name}${idLabel} - Best use: ${formatVerboseToolDescription(tool)}`;
+}
+
 export function buildToolsMessage(
   result: EffectiveToolInventoryResult,
   options?: { verbose?: boolean },
@@ -81,14 +86,19 @@ export function buildToolsMessage(
 
   const verbose = options?.verbose === true;
   const lines = verbose
-    ? ["Available tools", "", `Profile: ${result.profile}`, "What this agent can use right now:"]
+    ? [
+        "Available tools",
+        "",
+        `Profile: ${result.profile}`,
+        "What this agent can use right now and the best use for each tool:",
+      ]
     : ["Available tools", "", `Profile: ${result.profile}`];
 
   for (const group of groups) {
     lines.push("", group.label);
     if (verbose) {
       for (const tool of group.tools) {
-        lines.push(`  ${tool.name} - ${formatVerboseToolDescription(tool)}`);
+        lines.push(`  ${formatVerboseToolEntry(tool)}`);
       }
       continue;
     }
@@ -100,9 +110,12 @@ export function buildToolsMessage(
   }
 
   if (verbose) {
-    lines.push("", "Tool availability depends on this agent's configuration.");
+    lines.push(
+      "",
+      "Tool availability depends on this agent's configuration and current chat permissions.",
+    );
   } else {
-    lines.push("", "Use /tools verbose for descriptions.");
+    lines.push("", "Use /tools for descriptions and best uses.");
   }
   if (result.notices?.length) {
     lines.push("", "Notes");

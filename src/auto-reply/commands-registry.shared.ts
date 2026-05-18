@@ -169,13 +169,13 @@ export function buildBuiltinChatCommands(
     defineChatCommand({
       key: "tools",
       nativeName: "tools",
-      description: "List available runtime tools.",
+      description: "List available runtime tools and best uses.",
       textAlias: "/tools",
       category: "status",
       args: [
         {
           name: "mode",
-          description: "compact or verbose",
+          description: "compact or verbose; default is verbose",
           type: "string",
           choices: ["compact", "verbose"],
         },
