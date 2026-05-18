@@ -599,6 +599,10 @@ curl "https://api.telegram.org/bot<bot_token>/getUpdates"
     - inbound voice-note transcripts are framed as machine-generated,
       untrusted text in the agent context; mention detection still uses the raw
       transcript so mention-gated voice messages continue to work.
+    - set `tools.media.audio.localOnly: true` when Telegram voice notes must be
+      transcribed only by local CLI STT. With that policy, OpenClaw skips
+      provider/API STT and network-backed CLI entries instead of uploading the
+      audio.
 
     Message action example:
 

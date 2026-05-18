@@ -186,6 +186,107 @@ describe("runCapability auto audio entries", () => {
     }
   });
 
+  it("uses local audio only when localOnly is enabled", async () => {
+    const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-local-only-audio-bin-"));
+    const transcribeAudio = vi.fn(async (req: AudioTranscriptionRequest) => ({
+      text: "provider transcription",
+      model: req.model ?? "unknown",
+    }));
+    try {
+      const whisperPath = await createMockExecutable(binDir, "whisper");
+      const result = await runAutoAudioCase({
+        transcribeAudio,
+        cfgExtra: {
+          tools: {
+            media: {
+              audio: {
+                enabled: true,
+                localOnly: true,
+                models: [
+                  { type: "cli", command: whisperPath, args: ["{{MediaPath}}"] },
+                  {
+                    provider: "openai",
+                    model: "gpt-4o-transcribe",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+
+      const output = requireCapabilityOutput(result, 0);
+      expect(output.provider).toBe("cli");
+      expect(output.model).toBe(whisperPath);
+      expect(output.text).toBe("mocked-local-whisper");
+      expect(transcribeAudio).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips explicit provider audio entries when localOnly is enabled", async () => {
+    const transcribeAudio = vi.fn(async (req: AudioTranscriptionRequest) => ({
+      text: "provider transcription",
+      model: req.model ?? "unknown",
+    }));
+    const result = await runAutoAudioCase({
+      transcribeAudio,
+      cfgExtra: {
+        tools: {
+          media: {
+            audio: {
+              enabled: true,
+              localOnly: true,
+              models: [{ provider: "openai", model: "whisper-1" }],
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.outputs).toHaveLength(0);
+    expect(result.decision.outcome).toBe("skipped");
+    expect(result.decision.attachments[0]?.attempts[0]).toMatchObject({
+      type: "provider",
+      provider: "openai",
+      model: "whisper-1",
+      outcome: "skipped",
+      reason: "audio localOnly requires an approved local transcription CLI",
+    });
+    expect(transcribeAudio).not.toHaveBeenCalled();
+  });
+
+  it("skips network-backed CLI audio entries when localOnly is enabled", async () => {
+    const result = await runAutoAudioCase({
+      transcribeAudio: async () => ({
+        text: "provider transcription",
+        model: "gpt-4o-transcribe",
+      }),
+      cfgExtra: {
+        tools: {
+          media: {
+            audio: {
+              enabled: true,
+              localOnly: true,
+              models: [{ type: "cli", command: "gemini", args: ["{{MediaPath}}"] }],
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.outputs).toHaveLength(0);
+    expect(result.decision.outcome).toBe("skipped");
+    expect(result.decision.attachments[0]?.attempts[0]).toMatchObject({
+      type: "cli",
+      provider: "gemini",
+      model: "gemini",
+      outcome: "skipped",
+      reason: "audio localOnly requires an approved local transcription CLI",
+    });
+  });
+
   it("skips auto audio when disabled", async () => {
     const result = await runAutoAudioCase({
       transcribeAudio: async () => ({

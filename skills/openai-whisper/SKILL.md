@@ -26,6 +26,9 @@ metadata:
 
 Use `whisper` to transcribe audio locally.
 
+This is approved for `tools.media.audio.localOnly: true` because audio stays on
+the host and is processed by the local CLI.
+
 Quick start
 
 - `whisper /path/audio.mp3 --model medium --output_format txt --output_dir .`

@@ -38,6 +38,9 @@ Actions:
 Notes:
 
 - Requires the voice-call plugin to be enabled.
+- Do not treat voice-call/realtime STT as approved by `tools.media.audio.localOnly`.
+  If the user requires local-only audio, use local voice-message transcription
+  instead of provider-backed realtime or phone audio.
 - Plugin config lives under `plugins.entries.voice-call.config`.
 - Twilio config: `provider: "twilio"` + `twilio.accountSid/authToken` + `fromNumber`.
 - Telnyx config: `provider: "telnyx"` + `telnyx.apiKey/connectionId` + `fromNumber`.

@@ -82,6 +82,11 @@ export type MediaUnderstandingModelConfig = MediaProviderRequestConfig & {
 export type MediaUnderstandingConfig = MediaProviderRequestConfig & {
   /** Enable media understanding when models are configured. */
   enabled?: boolean;
+  /**
+   * Restrict audio transcription to approved local CLI engines only.
+   * Provider/API entries and network-backed CLIs are skipped when enabled.
+   */
+  localOnly?: boolean;
   /** Optional scope gating for understanding. */
   scope?: MediaUnderstandingScopeConfig;
   /** Default max bytes to send. */

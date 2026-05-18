@@ -842,6 +842,7 @@ const MediaUnderstandingModelSchema = z
 const ToolsMediaUnderstandingSchema = z
   .object({
     enabled: z.boolean().optional(),
+    localOnly: z.boolean().optional(),
     scope: MediaUnderstandingScopeSchema,
     maxBytes: z.number().int().positive().optional(),
     maxChars: z.number().int().positive().optional(),

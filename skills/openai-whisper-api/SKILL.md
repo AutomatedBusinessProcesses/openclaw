@@ -27,6 +27,9 @@ metadata:
 
 Transcribe an audio file via OpenAI’s `/v1/audio/transcriptions` endpoint. Set `OPENAI_BASE_URL` to use an OpenAI-compatible proxy or local gateway.
 
+Do not use this skill when `tools.media.audio.localOnly: true` or when the user
+requires local-only transcription. This path sends audio bytes to an API endpoint.
+
 ## Quick start
 
 ```bash

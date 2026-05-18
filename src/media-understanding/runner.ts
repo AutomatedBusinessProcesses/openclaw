@@ -61,8 +61,31 @@ export type RunCapabilityResult = {
   decision: MediaUnderstandingDecision;
 };
 
+const LOCAL_AUDIO_CLI_COMMANDS = new Set([
+  "parakeet-mlx",
+  "sherpa-onnx-offline",
+  "whisper",
+  "whisper-cli",
+]);
+
 let cachedHasAvailableAuthForProvider: HasAvailableAuthForProvider | null = null;
 let cachedModelCatalogApi: ModelCatalogApi | null = null;
+
+function isAudioLocalOnly(config?: MediaUnderstandingConfig): boolean {
+  return config?.localOnly === true;
+}
+
+function isApprovedLocalAudioCliEntry(entry: MediaUnderstandingModelConfig): boolean {
+  const entryType = entry.type ?? (entry.command ? "cli" : "provider");
+  if (entryType !== "cli") {
+    return false;
+  }
+  const command = entry.command?.trim();
+  if (!command) {
+    return false;
+  }
+  return LOCAL_AUDIO_CLI_COMMANDS.has(path.parse(command).name);
+}
 
 async function loadModelCatalogApi(): Promise<ModelCatalogApi> {
   cachedModelCatalogApi ??= await import("../agents/model-catalog.js");
@@ -636,8 +659,16 @@ async function resolveAutoEntries(params: {
   agentDir?: string;
   providerRegistry: ProviderRegistry;
   capability: MediaUnderstandingCapability;
+  config?: MediaUnderstandingConfig;
   activeModel?: ActiveMediaModel;
 }): Promise<MediaUnderstandingModelConfig[]> {
+  if (
+    params.capability === "audio" &&
+    isAudioLocalOnly(params.config ?? params.cfg.tools?.media?.audio)
+  ) {
+    const localAudio = await resolveLocalAudioEntry();
+    return localAudio ? [localAudio] : [];
+  }
   if (params.capability === "image") {
     const imageModelEntries = resolveImageModelFromAgentDefaults(params.cfg);
     if (imageModelEntries.length > 0) {
@@ -794,6 +825,21 @@ async function runAttachmentEntries(params: {
   const attempts: MediaUnderstandingModelDecision[] = [];
   for (const entry of entries) {
     const entryType = entry.type ?? (entry.command ? "cli" : "provider");
+    if (
+      capability === "audio" &&
+      isAudioLocalOnly(params.config) &&
+      !isApprovedLocalAudioCliEntry(entry)
+    ) {
+      attempts.push(
+        buildModelDecision({
+          entry,
+          entryType,
+          outcome: "skipped",
+          reason: "audio localOnly requires an approved local transcription CLI",
+        }),
+      );
+      continue;
+    }
     try {
       const result =
         entryType === "cli"
@@ -972,6 +1018,7 @@ export async function runCapability(params: {
       agentDir: params.agentDir,
       providerRegistry: params.providerRegistry,
       capability,
+      config,
       activeModel: params.activeModel,
     });
   }

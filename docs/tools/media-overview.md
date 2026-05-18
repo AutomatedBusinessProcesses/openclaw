@@ -112,6 +112,12 @@ parsing mark the transcribed attachment on the inbound context, so the shared
 media-understanding pass reuses that transcript instead of making a second
 STT call for the same audio.
 
+Set `tools.media.audio.localOnly: true` when uploaded audio must never be sent
+to a provider API. In local-only mode OpenClaw only runs approved local CLI
+transcribers (`whisper`, `whisper-cli`, `sherpa-onnx-offline`, or
+`parakeet-mlx`); provider entries, active chat-model fallbacks, and network-backed
+CLIs are skipped instead of receiving audio bytes.
+
 Deepgram, ElevenLabs, Mistral, OpenAI, and xAI also register Voice Call
 streaming STT providers, so live phone audio can be forwarded to the selected
 vendor without waiting for a completed recording.
