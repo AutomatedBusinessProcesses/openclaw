@@ -708,6 +708,10 @@ function firstToolResultPayload(dispatcher: ReplyDispatcher): ReplyPayload | und
     | undefined;
 }
 
+function workingDraft(text: string): string {
+  return `\`\`\`text\nWORKING DRAFT\n${text}\n\`\`\``;
+}
+
 function requireToolResultHandler(
   handler: GetReplyOptions["onToolResult"] | undefined,
 ): NonNullable<GetReplyOptions["onToolResult"]> {
@@ -1365,7 +1369,7 @@ describe("dispatchReplyFromConfig", () => {
     };
 
     await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
-    expect(dispatcher.sendToolResult).toHaveBeenCalledWith({ text: "tool output" });
+    expect(dispatcher.sendToolResult).toHaveBeenCalledWith({ text: workingDraft("tool output") });
     expect(dispatcher.sendFinalReply).toHaveBeenCalledTimes(1);
   });
 
@@ -1464,7 +1468,7 @@ describe("dispatchReplyFromConfig", () => {
 
     await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
     expect(dispatcher.sendToolResult).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "🔧 exec: ls" }),
+      expect.objectContaining({ text: workingDraft("🔧 exec: ls") }),
     );
     expect(dispatcher.sendToolResult).toHaveBeenCalledTimes(1);
     expect(dispatcher.sendFinalReply).toHaveBeenCalledTimes(1);
@@ -1536,7 +1540,7 @@ describe("dispatchReplyFromConfig", () => {
 
     await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
     expect(dispatcher.sendToolResult).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "🔧 exec: ls" }),
+      expect.objectContaining({ text: workingDraft("🔧 exec: ls") }),
     );
     expect(dispatcher.sendFinalReply).toHaveBeenCalledTimes(1);
   });
@@ -1569,7 +1573,7 @@ describe("dispatchReplyFromConfig", () => {
     expect(dispatcher.sendToolResult).toHaveBeenCalledTimes(2);
     expect(dispatcher.sendToolResult).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ text: "🔧 tools/sessions_send" }),
+      expect.objectContaining({ text: workingDraft("🔧 tools/sessions_send") }),
     );
     const sent = (dispatcher.sendToolResult as Mock).mock.calls[1]?.[0] as ReplyPayload | undefined;
     expect(sent?.mediaUrl).toBe("https://example.com/tts-native.opus");
@@ -1616,12 +1620,14 @@ describe("dispatchReplyFromConfig", () => {
     expect(dispatcher.sendToolResult).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        text: "Inspect code, patch it, run tests.\n\n1. Inspect code\n2. Patch code\n3. Run tests",
+        text: workingDraft(
+          "Inspect code, patch it, run tests.\n\n1. Inspect code\n2. Patch code\n3. Run tests",
+        ),
       }),
     );
     expect(dispatcher.sendToolResult).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ text: "Working: awaiting approval: pnpm test" }),
+      expect.objectContaining({ text: workingDraft("Working: awaiting approval: pnpm test") }),
     );
     expect(dispatcher.sendToolResult).toHaveBeenCalledTimes(2);
     expect(dispatcher.sendFinalReply).toHaveBeenCalledWith({ text: "done" });
@@ -1660,7 +1666,7 @@ describe("dispatchReplyFromConfig", () => {
 
     expect(dispatcher.sendToolResult).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ text: "Working: 1 added, 2 modified" }),
+      expect.objectContaining({ text: workingDraft("Working: 1 added, 2 modified") }),
     );
     expect(dispatcher.sendToolResult).toHaveBeenCalledTimes(1);
     expect(dispatcher.sendFinalReply).toHaveBeenCalledWith({ text: "done" });
@@ -1817,7 +1823,7 @@ describe("dispatchReplyFromConfig", () => {
       replyOptions: { suppressDefaultToolProgressMessages: true },
     });
 
-    expect(dispatcher.sendToolResult).toHaveBeenCalledWith({ text: "🔧 exec: ls" });
+    expect(dispatcher.sendToolResult).toHaveBeenCalledWith({ text: workingDraft("🔧 exec: ls") });
     expect(dispatcher.sendFinalReply).toHaveBeenCalledWith({ text: "done" });
   });
 
@@ -1861,10 +1867,10 @@ describe("dispatchReplyFromConfig", () => {
     });
 
     expect(dispatcher.sendToolResult).toHaveBeenNthCalledWith(1, {
-      text: "Inspect code.\n\n1. Patch code",
+      text: workingDraft("Inspect code.\n\n1. Patch code"),
     });
     expect(dispatcher.sendToolResult).toHaveBeenNthCalledWith(2, {
-      text: "Working: awaiting approval: pnpm test",
+      text: workingDraft("Working: awaiting approval: pnpm test"),
     });
     expect(dispatcher.sendFinalReply).toHaveBeenCalledWith({ text: "done" });
   });

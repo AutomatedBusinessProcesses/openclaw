@@ -10,6 +10,9 @@ import {
 type DispatchReplyWithBufferedBlockDispatcherArgs = Parameters<
   TelegramBotDeps["dispatchReplyWithBufferedBlockDispatcher"]
 >[0];
+type ChannelMessageReplyPipeline = ReturnType<
+  NonNullable<TelegramBotDeps["createChannelMessageReplyPipeline"]>
+>;
 
 const createTelegramDraftStream = vi.hoisted(() => vi.fn());
 const dispatchReplyWithBufferedBlockDispatcher = vi.hoisted(() =>
@@ -45,8 +48,9 @@ const buildModelsProviderData = vi.hoisted(() =>
 );
 const listSkillCommandsForAgents = vi.hoisted(() => vi.fn(() => []));
 const createChannelMessageReplyPipeline = vi.hoisted(() =>
-  vi.fn(() => ({
+  vi.fn<() => ChannelMessageReplyPipeline>(() => ({
     responsePrefix: undefined,
+    responseSuffix: undefined,
     responsePrefixContextProvider: () => ({ identityName: undefined }),
     onModelSelected: () => undefined,
   })),
@@ -257,6 +261,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     listSkillCommandsForAgents.mockReturnValue([]);
     createChannelMessageReplyPipeline.mockReturnValue({
       responsePrefix: undefined,
+      responseSuffix: undefined,
       responsePrefixContextProvider: () => ({ identityName: undefined }),
       onModelSelected: () => undefined,
     });
@@ -286,6 +291,10 @@ describe("dispatchTelegramMessage draft streaming", () => {
       .mockImplementationOnce(() => answerDraftStream)
       .mockImplementationOnce(() => reasoningDraftStream);
     return { answerDraftStream, reasoningDraftStream };
+  }
+
+  function workingDraftPreview(body: string): string {
+    return `\`\`\`text\nWORKING DRAFT\n${body}\n\`\`\``;
   }
 
   function createContext(overrides?: Partial<TelegramMessageContext>): TelegramMessageContext {
@@ -1064,7 +1073,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(answerDraftStream.update).toHaveBeenCalledWith(
-      "Working draft\n```text\nreply started\n\n🛠️ Exec\n\n🛠️ Exec: git rev-parse --abbrev-ref HEAD\n```",
+      workingDraftPreview("reply started\n\n🛠️ Exec\n\n🛠️ Exec: git rev-parse --abbrev-ref HEAD"),
     );
     expect(answerDraftStream.update).not.toHaveBeenCalledWith("Branch is up to date");
     expect(answerDraftStream.discard).toHaveBeenCalledTimes(1);
@@ -1075,6 +1084,29 @@ describe("dispatchTelegramMessage draft streaming", () => {
       }),
     );
     expect(editMessageTelegram).not.toHaveBeenCalled();
+  });
+
+  it("wraps partial-mode tool progress previews in working draft code blocks", async () => {
+    const { answerDraftStream } = setupDraftStreams({ answerMessageId: 2001 });
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
+      await replyOptions?.onToolStart?.({ name: "exec", phase: "start" });
+      await replyOptions?.onItemEvent?.({
+        kind: "command",
+        name: "exec",
+        progressText: "git rev-parse --abbrev-ref HEAD",
+      });
+      return { queuedFinal: false };
+    });
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "partial",
+      telegramCfg: { streaming: { mode: "partial", progress: { label: "Snapping..." } } },
+    });
+
+    expect(answerDraftStream.update).toHaveBeenLastCalledWith(
+      workingDraftPreview("Snapping...\n🛠️ Exec\n🛠️ Exec: git rev-parse --abbrev-ref HEAD"),
+    );
   });
 
   it("streams the first long final chunk and sends follow-up chunks", async () => {
@@ -1140,7 +1172,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringMatching(/^Working draft\n```text\nreply started\n\n🛠️ Exec\n```$/),
+      expect.stringMatching(/^```text\nWORKING DRAFT\nreply started\n\n🛠️ Exec\n```$/),
     );
     expect(draftStream.flush).toHaveBeenCalled();
   });
@@ -1159,7 +1191,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
       telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
     });
 
-    expect(draftStream.update).toHaveBeenCalledWith("Working draft\n```text\nreply started\n```");
+    expect(draftStream.update).toHaveBeenCalledWith(workingDraftPreview("reply started"));
     expect(draftStream.flush).toHaveBeenCalled();
     expect(draftStream.discard).toHaveBeenCalledTimes(1);
     expect(draftStream.clear).not.toHaveBeenCalled();
@@ -1223,7 +1255,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
       releaseSetTool?.();
       await pendingToolStart;
       expect(updateBeforeStatusReaction).toMatch(
-        /^Working draft\n```text\nreply started\n\n🛠️ Exec\n```$/,
+        /^```text\nWORKING DRAFT\nreply started\n\n🛠️ Exec\n```$/,
       );
       return { queuedFinal: false };
     });
@@ -1262,7 +1294,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     expect(draftStream.update).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^Working draft\n```text\nreply started\n\n🔎 Web Search: docs lookup\n\ntests passed\n```$/,
+        /^```text\nWORKING DRAFT\nreply started\n\n🔎 Web Search: docs lookup\n\ntests passed\n```$/,
       ),
     );
     expect(draftStream.forceNewMessage).not.toHaveBeenCalled();

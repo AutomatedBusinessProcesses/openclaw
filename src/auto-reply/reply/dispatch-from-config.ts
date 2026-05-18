@@ -101,6 +101,7 @@ import {
   resolveSourceReplyVisibilityPolicy,
 } from "./source-reply-delivery-mode.js";
 import { resolveRunTypingPolicy } from "./typing-policy.js";
+import { formatWorkingDraftProgressPayload } from "./working-draft-format.js";
 
 const routeReplyRuntimeLoader = createLazyImportLoader(() => import("./route-reply.runtime.js"));
 const getReplyFromConfigRuntimeLoader = createLazyImportLoader(
@@ -1110,6 +1111,10 @@ export async function dispatchReplyFromConfig(
 
     const toolStartStatusesSent = new Set<string>();
     let toolStartStatusCount = 0;
+    const shouldWrapProgressInWorkingDraft = () =>
+      normalizeMessageChannel(deliveryChannel) === "telegram";
+    const maybeFormatProgressPayload = (payload: ReplyPayload): ReplyPayload =>
+      shouldWrapProgressInWorkingDraft() ? formatWorkingDraftProgressPayload(payload) : payload;
     const normalizeWorkingLabel = (label: string) => {
       const collapsed = label.replace(/\s+/g, " ").trim();
       if (collapsed.length <= 80) {
@@ -1150,12 +1155,13 @@ export async function dispatchReplyFromConfig(
       const payload: ReplyPayload = {
         text: `Working: ${normalizedLabel}`,
       };
+      const deliveryPayload = maybeFormatProgressPayload(payload);
       if (shouldRouteToOriginating) {
-        await sendPayloadAsync(payload, undefined, false);
+        await sendPayloadAsync(deliveryPayload, undefined, false);
         return;
       }
       markInboundDedupeReplayUnsafe();
-      dispatcher.sendToolResult(payload);
+      dispatcher.sendToolResult(deliveryPayload);
     };
     const sendPlanUpdate = async (payload: {
       explanation?: string;
@@ -1167,12 +1173,13 @@ export async function dispatchReplyFromConfig(
       const replyPayload: ReplyPayload = {
         text: formatPlanUpdateText(payload),
       };
+      const deliveryPayload = maybeFormatProgressPayload(replyPayload);
       if (shouldRouteToOriginating) {
-        await sendPayloadAsync(replyPayload, undefined, false);
+        await sendPayloadAsync(deliveryPayload, undefined, false);
         return;
       }
       markInboundDedupeReplayUnsafe();
-      dispatcher.sendToolResult(replyPayload);
+      dispatcher.sendToolResult(deliveryPayload);
     };
     const summarizeApprovalLabel = (payload: {
       status?: string;
@@ -1367,10 +1374,14 @@ export async function dispatchReplyFromConfig(
                 }
               }
               if (shouldRouteToOriginating) {
-                await sendPayloadAsync(deliveryPayload, undefined, false);
+                await sendPayloadAsync(
+                  maybeFormatProgressPayload(deliveryPayload),
+                  undefined,
+                  false,
+                );
               } else {
                 markInboundDedupeReplayUnsafe();
-                dispatcher.sendToolResult(deliveryPayload);
+                dispatcher.sendToolResult(maybeFormatProgressPayload(deliveryPayload));
               }
             };
             return run();

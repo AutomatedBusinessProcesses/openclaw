@@ -271,23 +271,10 @@ function resolveTelegramReasoningLevel(params: {
   return configDefault;
 }
 
-const MAX_PROGRESS_MARKDOWN_TEXT_CHARS = 300;
 const MAX_WORKING_DRAFT_ENTRY_CHARS = 1600;
-
-function clipProgressMarkdownText(text: string): string {
-  if (text.length <= MAX_PROGRESS_MARKDOWN_TEXT_CHARS) {
-    return text;
-  }
-  return `${text.slice(0, MAX_PROGRESS_MARKDOWN_TEXT_CHARS - 1).trimEnd()}…`;
-}
 
 function sanitizeProgressMarkdownText(text: string): string {
   return text.replaceAll("`", "'");
-}
-
-function formatProgressAsMarkdownCode(text: string): string {
-  const clipped = clipProgressMarkdownText(text);
-  return `\`${sanitizeProgressMarkdownText(clipped)}\``;
 }
 
 function sanitizeWorkingDraftLogText(text: string): string {
@@ -305,9 +292,29 @@ function clipWorkingDraftLogEntry(text: string): string {
   return `${text.slice(0, MAX_WORKING_DRAFT_ENTRY_CHARS - 1).trimEnd()}…`;
 }
 
+function longestBacktickRun(text: string): number {
+  let longest = 0;
+  let current = 0;
+  for (const char of text) {
+    if (char === "`") {
+      current += 1;
+      longest = Math.max(longest, current);
+    } else {
+      current = 0;
+    }
+  }
+  return longest;
+}
+
+function formatWorkingDraftCodeBlockText(body: string): string {
+  const normalized = body.trim() || "reply started";
+  const fence = "`".repeat(Math.max(3, longestBacktickRun(normalized) + 1));
+  return `${fence}text\nWORKING DRAFT\n${normalized}\n${fence}`;
+}
+
 function formatWorkingDraftLogText(entries: string[]): string {
   const body = entries.length > 0 ? entries.join("\n\n") : "reply started";
-  return `Working draft\n\`\`\`text\n${body}\n\`\`\``;
+  return formatWorkingDraftCodeBlockText(body);
 }
 
 export const dispatchTelegramMessage = async ({
@@ -633,13 +640,13 @@ export const dispatchTelegramMessage = async ({
         entry: telegramCfg,
         lines: streamToolProgressLines,
         seed: progressSeed,
-        formatLine: formatProgressAsMarkdownCode,
       });
-      answerLane.lastPartialText = streamText;
+      const workingDraftStreamText = formatWorkingDraftCodeBlockText(streamText);
+      answerLane.lastPartialText = workingDraftStreamText;
       answerLane.hasStreamedMessage = true;
       answerLane.finalized = false;
       answerLane.retained = false;
-      answerLane.stream.update(streamText);
+      answerLane.stream.update(workingDraftStreamText);
       return;
     }
     if (streamToolProgressEnabled && !streamToolProgressSuppressed && normalized) {
