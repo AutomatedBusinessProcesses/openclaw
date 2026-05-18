@@ -209,7 +209,7 @@ export type TelegramAccountConfig = {
    * Use `"auto"` to derive `[{identity.name}]` from the routed agent.
    */
   responsePrefix?: string;
-  /** Per-channel final response suffix override, for example `"\n\nEND"`. */
+  /** Per-channel final-turn response suffix override, for example `"\n\nEND"`. */
   responseSuffix?: string;
   /**
    * Per-channel ack reaction override.

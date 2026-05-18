@@ -498,14 +498,9 @@ export const dispatchTelegramMessage = async ({
           minInitialChars: draftMinInitialChars,
           renderText: renderStreamText,
           onSupersededPreview: (superseded) => {
-            if (superseded.retain) {
-              return;
-            }
-            void bot.api.deleteMessage(chatId, superseded.messageId).catch((err: unknown) => {
-              logVerbose(
-                `telegram: superseded ${laneName} stream cleanup failed (${superseded.messageId}): ${String(err)}`,
-              );
-            });
+            logVerbose(
+              `telegram: retained superseded ${laneName} stream preview (${superseded.messageId})`,
+            );
           },
           log: logVerbose,
           warn: logVerbose,

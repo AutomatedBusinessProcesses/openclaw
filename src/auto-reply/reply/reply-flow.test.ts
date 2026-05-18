@@ -134,7 +134,7 @@ describe("createReplyDispatcher", () => {
     expect(onHeartbeatStrip).toHaveBeenCalledTimes(2);
   });
 
-  it("applies responseSuffix only to final visible replies", async () => {
+  it("applies responseSuffix only to the last final visible reply after completion", async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
     const dispatcher = createReplyDispatcher({
       deliver,
@@ -148,15 +148,46 @@ describe("createReplyDispatcher", () => {
     expect(dispatcher.sendFinalReply({ text: "FRIEND" })).toBe(true);
     expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(false);
 
+    dispatcher.markComplete();
     await dispatcher.waitForIdle();
 
     expect(deliver.mock.calls.map((call) => call[0].text)).toEqual([
       "tool",
       "block",
-      "final\n\nEND",
-      "already\n\nEND",
+      "final",
+      "already",
       "FRIEND\n\nEND",
     ]);
+  });
+
+  it("defers responseSuffix finals until the dispatcher is complete", async () => {
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = createReplyDispatcher({
+      deliver,
+      responseSuffix: "\n\nEND",
+    });
+
+    expect(dispatcher.sendFinalReply({ text: "final" })).toBe(true);
+    await dispatcher.waitForIdle();
+    expect(deliver).not.toHaveBeenCalled();
+
+    dispatcher.markComplete();
+    await dispatcher.waitForIdle();
+    expect(deliver.mock.calls.map((call) => call[0].text)).toEqual(["final\n\nEND"]);
+  });
+
+  it("keeps a standalone deferred completion marker to one final delivery", async () => {
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = createReplyDispatcher({
+      deliver,
+      responseSuffix: "\n\nEND",
+    });
+
+    expect(dispatcher.sendFinalReply({ text: "END" })).toBe(true);
+
+    dispatcher.markComplete();
+    await dispatcher.waitForIdle();
+    expect(deliver.mock.calls.map((call) => call[0].text)).toEqual(["END"]);
   });
 
   it("avoids double-prefixing and keeps media when heartbeat is the only text", async () => {

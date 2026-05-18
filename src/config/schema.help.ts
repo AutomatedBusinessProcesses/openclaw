@@ -1682,7 +1682,7 @@ export const FIELD_HELP: Record<string, string> = {
   "messages.responsePrefix":
     "Prefix text prepended to outbound assistant replies before sending to channels. Use for lightweight branding/context tags and avoid long prefixes that reduce content density.",
   "messages.responseSuffix":
-    "Suffix text appended to final outbound assistant replies before sending to channels. Use for mandatory completion markers such as END; silent and heartbeat control replies are not suffixed.",
+    "Suffix text appended once to the last final outbound assistant reply after the turn dispatcher completes. Use for mandatory completion markers such as END; progress, silent, and heartbeat control replies are not suffixed.",
   "messages.groupChat":
     "Group-message handling controls including mention triggers and history window sizing. Keep mention patterns narrow so group channels do not trigger on every message.",
   "messages.groupChat.mentionPatterns":

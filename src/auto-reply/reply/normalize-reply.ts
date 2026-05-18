@@ -32,7 +32,7 @@ export type NormalizeReplyOptions = {
   onSkip?: (reason: NormalizeReplySkipReason) => void;
 };
 
-function hasTerminalResponseSuffix(text: string, responseSuffix: string): boolean {
+export function hasTerminalResponseSuffix(text: string, responseSuffix: string): boolean {
   const textEnd = text.trimEnd();
   const suffixEnd = responseSuffix.trimEnd();
   const marker = suffixEnd.trim();
@@ -43,6 +43,34 @@ function hasTerminalResponseSuffix(text: string, responseSuffix: string): boolea
     return true;
   }
   return textEnd === marker || textEnd.endsWith(`\n${marker}`);
+}
+
+export function stripTerminalResponseSuffix(text: string, responseSuffix: string): string {
+  const textEnd = text.trimEnd();
+  const suffixEnd = responseSuffix.trimEnd();
+  const marker = suffixEnd.trim();
+  if (!marker) {
+    return text;
+  }
+  if (/^\s/u.test(suffixEnd) && textEnd.endsWith(suffixEnd)) {
+    return textEnd.slice(0, -suffixEnd.length).trimEnd();
+  }
+  if (textEnd === marker) {
+    return "";
+  }
+  const lineMarker = `\n${marker}`;
+  if (textEnd.endsWith(lineMarker)) {
+    return textEnd.slice(0, -lineMarker.length).trimEnd();
+  }
+  return text;
+}
+
+export function appendTerminalResponseSuffix(text: string, responseSuffix: string): string {
+  const stripped = stripTerminalResponseSuffix(text, responseSuffix);
+  if (!stripped.trim()) {
+    return responseSuffix.trim();
+  }
+  return `${stripped.trimEnd()}${responseSuffix}`;
 }
 
 export function normalizeReplyPayload(
@@ -140,7 +168,7 @@ export function normalizeReplyPayload(
   const responseSuffix = opts.responseSuffix;
   if (responseSuffix && text) {
     if (!hasTerminalResponseSuffix(text, responseSuffix)) {
-      text = `${text.trimEnd()}${responseSuffix}`;
+      text = appendTerminalResponseSuffix(text, responseSuffix);
     }
   }
 

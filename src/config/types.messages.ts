@@ -120,11 +120,12 @@ export type MessagesConfig = {
    */
   responsePrefix?: string;
   /**
-   * Suffix appended to final outbound assistant replies.
+   * Suffix appended once to the last final outbound assistant reply after the
+   * dispatcher completes.
    *
    * Use for transport-level completion markers that must not rely on model
-   * compliance, for example `"\n\nEND"`. Silent and heartbeat control replies
-   * are not suffixed.
+   * compliance, for example `"\n\nEND"`. Progress, silent, and heartbeat control
+   * replies are not suffixed.
    */
   responseSuffix?: string;
   groupChat?: GroupChatConfig;

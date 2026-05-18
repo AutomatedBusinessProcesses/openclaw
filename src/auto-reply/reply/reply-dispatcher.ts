@@ -12,7 +12,12 @@ import { sleep } from "../../utils.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { registerDispatcher } from "./dispatcher-registry.js";
-import { normalizeReplyPayload, type NormalizeReplySkipReason } from "./normalize-reply.js";
+import {
+  appendTerminalResponseSuffix,
+  normalizeReplyPayload,
+  stripTerminalResponseSuffix,
+  type NormalizeReplySkipReason,
+} from "./normalize-reply.js";
 import type { ReplyDispatchKind, ReplyDispatcher } from "./reply-dispatcher.types.js";
 import type { ResponsePrefixContext } from "./response-prefix-template.js";
 import type { TypingController } from "./typing.js";
@@ -206,6 +211,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     block: 0,
     final: 0,
   };
+  const pendingFinalPayloads: ReplyPayload[] = [];
 
   // Register this dispatcher globally for gateway restart coordination.
   const { unregister } = registerDispatcher({
@@ -213,36 +219,29 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     waitForIdle: () => sendChain,
   });
 
-  const enqueue = (kind: ReplyDispatchKind, payload: ReplyPayload) => {
-    const originalWasExactSilent = isSilentReplyText(payload.text, SILENT_REPLY_TOKEN);
-    const silentFinalPayload = resolveSilentFinalPayload({
-      kind,
-      payload,
-      silentReplyContext: options.silentReplyContext,
-    });
-    const normalized =
-      silentFinalPayload ??
-      normalizeReplyPayloadInternal(payload, {
-        responsePrefix: options.responsePrefix,
-        responseSuffix: options.responseSuffix,
-        responsePrefixContext: options.responsePrefixContext,
-        responsePrefixContextProvider: options.responsePrefixContextProvider,
-        transformReplyPayload: options.transformReplyPayload,
-        onHeartbeatStrip: options.onHeartbeatStrip,
-        kind,
-        onSkip: (reason) => options.onSkip?.(payload, { kind, reason }),
-      });
-    if (!normalized) {
-      if (kind === "final" && originalWasExactSilent) {
-        silentReplyLogger.debug("exact NO_REPLY final payload was skipped before delivery", {
-          hasSessionKey: Boolean(options.silentReplyContext?.sessionKey),
-          surface: options.silentReplyContext?.surface,
-          conversationType: options.silentReplyContext?.conversationType,
-        });
-      }
-      return false;
+  const normalizeDeferredFinalSuffix = (payload: ReplyPayload): ReplyPayload => {
+    const suffix = options.responseSuffix;
+    if (!suffix || !payload.text) {
+      return payload;
     }
-    queuedCounts[kind] += 1;
+    return {
+      ...payload,
+      text: stripTerminalResponseSuffix(payload.text, suffix),
+    };
+  };
+
+  const appendFinalSuffix = (payload: ReplyPayload): ReplyPayload => {
+    const suffix = options.responseSuffix;
+    if (!suffix || payload.text === undefined) {
+      return payload;
+    }
+    return {
+      ...payload,
+      text: appendTerminalResponseSuffix(payload.text, suffix),
+    };
+  };
+
+  const enqueueDelivery = (kind: ReplyDispatchKind, normalized: ReplyPayload) => {
     pending += 1;
 
     // Determine if we should add human-like delay (only for block replies after the first).
@@ -289,6 +288,67 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
           options.onIdle?.();
         }
       });
+  };
+
+  const flushPendingFinalPayloads = () => {
+    if (pendingFinalPayloads.length === 0) {
+      return;
+    }
+    const finalPayloads = pendingFinalPayloads.splice(0);
+    let suffixIndex = -1;
+    if (options.responseSuffix) {
+      for (let index = finalPayloads.length - 1; index >= 0; index -= 1) {
+        const payload = finalPayloads[index];
+        if (payload?.text !== undefined) {
+          suffixIndex = index;
+          break;
+        }
+      }
+    }
+    for (const [index, payload] of finalPayloads.entries()) {
+      enqueueDelivery("final", index === suffixIndex ? appendFinalSuffix(payload) : payload);
+    }
+  };
+
+  const enqueue = (kind: ReplyDispatchKind, payload: ReplyPayload) => {
+    const originalWasExactSilent = isSilentReplyText(payload.text, SILENT_REPLY_TOKEN);
+    const deferFinalSuffix = kind === "final" && Boolean(options.responseSuffix);
+    const silentFinalPayload = resolveSilentFinalPayload({
+      kind,
+      payload,
+      silentReplyContext: options.silentReplyContext,
+    });
+    const normalized =
+      silentFinalPayload ??
+      normalizeReplyPayloadInternal(payload, {
+        responsePrefix: options.responsePrefix,
+        responseSuffix: deferFinalSuffix ? undefined : options.responseSuffix,
+        responsePrefixContext: options.responsePrefixContext,
+        responsePrefixContextProvider: options.responsePrefixContextProvider,
+        transformReplyPayload: options.transformReplyPayload,
+        onHeartbeatStrip: options.onHeartbeatStrip,
+        kind,
+        onSkip: (reason) => options.onSkip?.(payload, { kind, reason }),
+      });
+    if (!normalized) {
+      if (kind === "final" && originalWasExactSilent) {
+        silentReplyLogger.debug("exact NO_REPLY final payload was skipped before delivery", {
+          hasSessionKey: Boolean(options.silentReplyContext?.sessionKey),
+          surface: options.silentReplyContext?.surface,
+          conversationType: options.silentReplyContext?.conversationType,
+        });
+      }
+      return false;
+    }
+    queuedCounts[kind] += 1;
+    if (deferFinalSuffix) {
+      pendingFinalPayloads.push(normalizeDeferredFinalSuffix(normalized));
+      if (completeCalled) {
+        flushPendingFinalPayloads();
+      }
+      return true;
+    }
+    enqueueDelivery(kind, normalized);
     return true;
   };
 
@@ -297,6 +357,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
       return;
     }
     completeCalled = true;
+    flushPendingFinalPayloads();
     // If no replies were enqueued (pending is still 1 = just the reservation),
     // schedule clearing the reservation after current microtasks complete.
     // This gives any in-flight enqueue() calls a chance to increment pending.

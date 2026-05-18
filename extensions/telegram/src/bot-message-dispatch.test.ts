@@ -499,7 +499,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(deliverReplies).not.toHaveBeenCalled();
   });
 
-  it("keeps retained overflow draft previews", async () => {
+  it("keeps all superseded draft previews", async () => {
     const draftStream = createDraftStream();
     const bot = createBot();
     createTelegramDraftStream.mockReturnValue(draftStream);
@@ -528,7 +528,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
       messageId: 18,
       textSnapshot: "stale page",
     });
-    await vi.waitFor(() => expect(bot.api.deleteMessage).toHaveBeenCalledWith(123, 18));
+    expect(bot.api.deleteMessage).not.toHaveBeenCalled();
   });
 
   it("queues final Telegram replies through outbound delivery when available", async () => {
