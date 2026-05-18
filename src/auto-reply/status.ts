@@ -5,6 +5,7 @@ export {
   buildCommandsMessage,
   buildCommandsMessagePaginated,
   buildHelpMessage,
+  buildSkillsMessage,
   type CommandsMessageOptions,
   type CommandsMessageResult,
 } from "./command-status-builders.js";

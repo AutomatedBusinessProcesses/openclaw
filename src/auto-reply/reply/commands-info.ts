@@ -7,6 +7,7 @@ import {
   buildCommandsMessage,
   buildCommandsMessagePaginated,
   buildHelpMessage,
+  buildSkillsMessage,
   buildToolsMessage,
 } from "../status.js";
 import { buildThreadingToolContext } from "./agent-runner-utils.js";
@@ -86,6 +87,34 @@ export const handleCommandsListCommand: CommandHandler = async (params, allowTex
   return {
     shouldContinue: false,
     reply: { text: buildCommandsMessage(params.cfg, skillCommands, { surface }) },
+  };
+};
+
+export const handleSkillsCommand: CommandHandler = async (params, allowTextCommands) => {
+  if (!allowTextCommands) {
+    return null;
+  }
+  if (params.command.commandBodyNormalized !== "/skills") {
+    return null;
+  }
+  if (!params.command.isAuthorizedSender) {
+    logVerbose(
+      `Ignoring /skills from unauthorized sender: ${params.command.senderId || "<unknown>"}`,
+    );
+    return { shouldContinue: false };
+  }
+  const agentId = params.sessionKey
+    ? resolveSessionAgentId({ sessionKey: params.sessionKey, config: params.cfg })
+    : params.agentId;
+  const skillCommands =
+    params.skillCommands ??
+    listSkillCommandsForAgents({
+      cfg: params.cfg,
+      agentIds: agentId ? [agentId] : undefined,
+    });
+  return {
+    shouldContinue: false,
+    reply: { text: buildSkillsMessage(skillCommands) },
   };
 };
 

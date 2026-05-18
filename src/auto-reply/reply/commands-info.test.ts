@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
+import type { SkillCommandSpec } from "../../agents/skills.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { MsgContext } from "../templating.js";
 import { handleContextCommand } from "./commands-context-command.js";
-import { handleExportTrajectoryCommand, handleStatusCommand } from "./commands-info.js";
+import {
+  handleExportTrajectoryCommand,
+  handleSkillsCommand,
+  handleStatusCommand,
+} from "./commands-info.js";
 import { buildStatusReply } from "./commands-status.js";
 import type { HandleCommandsParams } from "./commands-types.js";
 import { handleWhoamiCommand } from "./commands-whoami.js";
@@ -12,7 +17,7 @@ const buildContextReplyMock = vi.hoisted(() => vi.fn());
 const buildExportTrajectoryCommandReplyMock = vi.hoisted(() =>
   vi.fn(async () => ({ text: "exported" })),
 );
-const listSkillCommandsForAgentsMock = vi.hoisted(() => vi.fn(() => []));
+const listSkillCommandsForAgentsMock = vi.hoisted(() => vi.fn((): SkillCommandSpec[] => []));
 const buildCommandsMessagePaginatedMock = vi.hoisted(() =>
   vi.fn(() => ({ text: "/commands", currentPage: 1, totalPages: 1 })),
 );
@@ -300,6 +305,33 @@ describe("info command handlers", () => {
     const result = await handleCommandsListCommand(params, true);
 
     expect(result?.shouldContinue).toBe(false);
+    expect(listSkillCommandsForAgentsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentIds: ["target"],
+      }),
+    );
+  });
+
+  it("uses the canonical target session agent when listing /skills", async () => {
+    listSkillCommandsForAgentsMock.mockReturnValue([
+      {
+        name: "shopper",
+        skillName: "shopper",
+        description: "Research purchases and keep a search log.",
+      },
+    ]);
+    const params = buildInfoParams("/skills", {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+    } as OpenClawConfig);
+    params.agentId = "main";
+    params.sessionKey = "agent:target:whatsapp:direct:12345";
+    vi.mocked(resolveSessionAgentId).mockReturnValue("target");
+
+    const result = await handleSkillsCommand(params, true);
+
+    expect(result?.shouldContinue).toBe(false);
+    expect(result?.reply?.text).toContain("/shopper - Research purchases");
     expect(listSkillCommandsForAgentsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         agentIds: ["target"],

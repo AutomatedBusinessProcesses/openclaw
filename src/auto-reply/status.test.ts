@@ -11,6 +11,7 @@ import {
   buildCommandsMessage,
   buildCommandsMessagePaginated,
   buildHelpMessage,
+  buildSkillsMessage,
   buildStatusMessage as buildStatusMessageRaw,
 } from "./status.js";
 import type { buildStatusMessage as BuildStatusMessage } from "./status.js";
@@ -2066,6 +2067,7 @@ describe("buildCommandsMessage", () => {
     expect(text).toContain("ℹ️ Slash commands");
     expect(text).toContain("Status");
     expect(text).toContain("/commands - List all slash commands.");
+    expect(text).toContain("/skills - List available skills and descriptions.");
     expect(text).toContain("/skill - Run a skill by name.");
     expect(text).toContain("/think (/thinking, /t) - Set thinking level.");
     expect(text).toContain("/compact - Compact the session context.");
@@ -2097,6 +2099,7 @@ describe("buildHelpMessage", () => {
       commands: { config: false, debug: false },
     } as unknown as OpenClawConfig);
     expect(text).toContain("Skills");
+    expect(text).toContain("/skills");
     expect(text).toContain("/skill <name> [input]");
     expect(text).not.toContain("/config");
     expect(text).not.toContain("/debug");
@@ -2108,6 +2111,31 @@ describe("buildHelpMessage", () => {
 
   it("includes raw trace mode in help output", () => {
     expect(buildHelpMessage()).toContain("/trace on|off|raw");
+  });
+});
+
+describe("buildSkillsMessage", () => {
+  it("lists visible skill commands with descriptions", () => {
+    const text = buildSkillsMessage([
+      {
+        name: "shopper",
+        skillName: "shopper",
+        description: "Research purchases and keep a search log.",
+      },
+      {
+        name: "deep_research",
+        skillName: "deep-research",
+        description: "Investigate a topic.",
+      },
+    ]);
+    expect(text).toContain("Skills (2)");
+    expect(text).toContain("/deep_research (deep-research) - Investigate a topic.");
+    expect(text).toContain("/shopper - Research purchases and keep a search log.");
+    expect(text).toContain("Use /skill <name> [input]");
+  });
+
+  it("explains when no skills are available", () => {
+    expect(buildSkillsMessage([])).toContain("No user-invocable skills are available");
   });
 });
 

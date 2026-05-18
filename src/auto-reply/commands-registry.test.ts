@@ -173,7 +173,7 @@ describe("commands registry", () => {
   it("exposes native specs", () => {
     const specs = listNativeCommandSpecs();
     expect([...nativeNameSet(specs)]).toEqual(
-      expect.arrayContaining(["help", "stop", "skill", "tasks", "whoami", "compact"]),
+      expect.arrayContaining(["help", "stop", "skill", "skills", "tasks", "whoami", "compact"]),
     );
   });
 

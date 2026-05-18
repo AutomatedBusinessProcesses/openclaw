@@ -151,6 +151,7 @@ Current source-of-truth:
   <Accordion title="Discovery and status">
     - `/help` shows the short help summary.
     - `/commands` shows the generated command catalog.
+    - `/skills` shows the user-invocable skills visible to the active agent, with each skill command and description.
     - `/tools [compact|verbose]` shows what the current agent can use right now.
     - `/status` shows execution/runtime status, Gateway and system uptime, plus provider usage/quota when available.
     - `/diagnostics [note]` is the owner-only support-report flow for Gateway bugs and Codex harness runs. It asks for explicit exec approval every time before running `openclaw gateway diagnostics export --json`; do not approve diagnostics with an allow-all rule. After approval, it sends a pasteable report with the local bundle path, manifest summary, privacy notes, and relevant session ids. In group chats, the approval prompt and report go to the owner privately. When the active session uses the OpenAI Codex harness, the same approval also sends relevant Codex feedback to OpenAI servers and the completed reply lists the OpenClaw session ids, Codex thread ids, and `codex resume <thread-id>` commands. See [Diagnostics Export](/gateway/diagnostics).
@@ -162,6 +163,7 @@ Current source-of-truth:
 
   </Accordion>
   <Accordion title="Skills, allowlists, approvals">
+    - `/skills` lists available skills and descriptions for the active agent.
     - `/skill <name> [input]` runs a skill by name.
     - `/allowlist [list|add|remove] ...` manages allowlist entries. Text-only.
     - `/approve <id> <decision>` resolves exec approval prompts.
@@ -238,6 +240,7 @@ Bundled plugins can add more slash commands. Current bundled commands in this re
 User-invocable skills are also exposed as slash commands:
 
 - `/skill <name> [input]` always works as the generic entrypoint.
+- `/skills` lists the active agent's user-invocable skills with each generated command name and description.
 - skills may also appear as direct commands like `/prose` when the skill/plugin registers them.
 - native skill-command registration is controlled by `commands.nativeSkills` and `channels.<provider>.commands.nativeSkills`.
 - command specs can provide `descriptionLocalizations` for native surfaces that support localized descriptions, including Discord.

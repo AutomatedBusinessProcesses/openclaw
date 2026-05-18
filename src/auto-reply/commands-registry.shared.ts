@@ -206,6 +206,14 @@ export function buildBuiltinChatCommands(
       ],
     }),
     defineChatCommand({
+      key: "skills",
+      nativeName: "skills",
+      description: "List available skills and descriptions.",
+      textAlias: "/skills",
+      category: "tools",
+      tier: "essential",
+    }),
+    defineChatCommand({
       key: "status",
       nativeName: "status",
       description: "Show current status.",

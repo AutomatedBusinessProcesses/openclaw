@@ -80,7 +80,7 @@ export function buildHelpMessage(cfg?: OpenClawConfig): string {
   lines.push("");
 
   lines.push("Skills");
-  lines.push("  /skill <name> [input]");
+  lines.push("  /skills  |  /skill <name> [input]");
 
   lines.push("");
   lines.push("More: /commands for full list, /tools for available capabilities");
@@ -237,4 +237,38 @@ export function buildCommandsMessagePaginated(
     hasNext: currentPage < totalPages,
     hasPrev: currentPage > 1,
   };
+}
+
+function formatSkillCommandEntry(command: SkillCommandSpec): string {
+  const primary = `/${command.name}`;
+  const skillName = command.skillName.trim();
+  const label = skillName && skillName !== command.name ? `${primary} (${skillName})` : primary;
+  return `${label} - ${command.description}`;
+}
+
+function sortSkillCommands(commands: SkillCommandSpec[]): SkillCommandSpec[] {
+  return commands.toSorted((a, b) => {
+    const byName = a.skillName.localeCompare(b.skillName);
+    return byName !== 0 ? byName : a.name.localeCompare(b.name);
+  });
+}
+
+export function buildSkillsMessage(skillCommands?: SkillCommandSpec[]): string {
+  const commands = sortSkillCommands(skillCommands ?? []);
+  if (commands.length === 0) {
+    return [
+      "Skills",
+      "",
+      "No user-invocable skills are available for this agent right now.",
+      "",
+      "Use /commands for the full slash command catalog.",
+    ].join("\n");
+  }
+
+  const lines = [`Skills (${commands.length})`, "", "User-invocable skills visible to this agent:"];
+  for (const command of commands) {
+    lines.push(`  ${formatSkillCommandEntry(command)}`);
+  }
+  lines.push("", "Use /skill <name> [input] for the generic entrypoint.");
+  return lines.join("\n");
 }
