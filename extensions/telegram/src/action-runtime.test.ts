@@ -3,6 +3,7 @@ import { captureEnv } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleTelegramAction, telegramActionRuntime } from "./action-runtime.js";
 import { beginTelegramInboundTurnDeliveryCorrelation } from "./inbound-turn-delivery.js";
+import { clearSentMessageCache, recordSentMessage } from "./sent-message-cache.js";
 
 const originalTelegramActionRuntime = { ...telegramActionRuntime };
 const reactMessageTelegram = vi.fn(async () => ({ ok: true }));
@@ -130,6 +131,7 @@ describe("handleTelegramAction", () => {
 
   afterEach(() => {
     envSnapshot.restore();
+    clearSentMessageCache();
   });
 
   it("adds reactions when reactionLevel is minimal", async () => {
@@ -821,6 +823,37 @@ describe("handleTelegramAction", () => {
       456,
       expect.objectContaining({ token: "tok" }),
     );
+  });
+
+  it("refuses to delete OpenClaw-sent messages", async () => {
+    const cfg = {
+      channels: { telegram: { botToken: "tok" } },
+    } as OpenClawConfig;
+    recordSentMessage("123", 456, cfg);
+
+    const result = await handleTelegramAction(
+      {
+        action: "deleteMessage",
+        chatId: "123",
+        messageId: 456,
+      },
+      cfg,
+    );
+
+    const textPayload = result.content.find((item) => item.type === "text");
+    expect(textPayload?.type).toBe("text");
+    const parsed = JSON.parse((textPayload as { type: "text"; text: string }).text) as {
+      ok: boolean;
+      deleted?: boolean;
+      warning?: string;
+    };
+    expect(parsed).toMatchObject({
+      ok: false,
+      deleted: false,
+      warning:
+        "Refusing to delete OpenClaw-sent Telegram message 456; visible assistant output is retained.",
+    });
+    expect(deleteMessageTelegram).not.toHaveBeenCalled();
   });
 
   it("surfaces non-fatal delete warnings", async () => {

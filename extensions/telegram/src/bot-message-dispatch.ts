@@ -103,6 +103,7 @@ import {
   splitTelegramReasoningText,
 } from "./reasoning-lane-coordinator.js";
 import { editMessageTelegram } from "./send.js";
+import { recordSentMessage } from "./sent-message-cache.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
 
 export { pruneStickerMediaFromContext } from "./bot-message-dispatch.media.js";
@@ -497,6 +498,9 @@ export const dispatchTelegramMessage = async ({
           replyToMessageId: draftReplyToMessageId,
           minInitialChars: draftMinInitialChars,
           renderText: renderStreamText,
+          onPreviewMessageSent: (messageId) => {
+            recordSentMessage(chatId, messageId, cfg);
+          },
           onSupersededPreview: (superseded) => {
             logVerbose(
               `telegram: retained superseded ${laneName} stream preview (${superseded.messageId})`,

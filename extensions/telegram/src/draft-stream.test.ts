@@ -204,6 +204,20 @@ describe("createTelegramDraftStream", () => {
     }
   });
 
+  it("reports accepted preview sends for sent-message retention", async () => {
+    const api = createMockDraftApi();
+    const onPreviewMessageSent = vi.fn();
+    const stream = createDraftStream(api, { onPreviewMessageSent });
+
+    stream.update("Hello");
+    await stream.flush();
+    stream.update("Hello again");
+    await stream.flush();
+
+    expect(onPreviewMessageSent).toHaveBeenCalledTimes(1);
+    expect(onPreviewMessageSent).toHaveBeenCalledWith(17);
+  });
+
   it("retries DM message preview send without thread when thread is not found", async () => {
     const api = createMockDraftApi();
     api.sendMessage

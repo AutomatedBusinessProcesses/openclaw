@@ -190,6 +190,24 @@ describe("createReplyDispatcher", () => {
     expect(deliver.mock.calls.map((call) => call[0].text)).toEqual(["END"]);
   });
 
+  it("applies deferred responseSuffix after beforeDeliver rewrites the last final reply", async () => {
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = createReplyDispatcher({
+      deliver,
+      responseSuffix: "\n\nEND",
+      beforeDeliver: (payload) => ({
+        ...payload,
+        text: payload.text === "final" ? "rewritten final" : payload.text,
+      }),
+    });
+
+    expect(dispatcher.sendFinalReply({ text: "final" })).toBe(true);
+
+    dispatcher.markComplete();
+    await dispatcher.waitForIdle();
+    expect(deliver.mock.calls.map((call) => call[0].text)).toEqual(["rewritten final\n\nEND"]);
+  });
+
   it("avoids double-prefixing and keeps media when heartbeat is the only text", async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
     const dispatcher = createReplyDispatcher({

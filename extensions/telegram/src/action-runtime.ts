@@ -38,6 +38,7 @@ import {
   sendPollTelegram,
   sendStickerTelegram,
 } from "./send.js";
+import { wasSentByBot } from "./sent-message-cache.js";
 import { getCacheStats, searchStickers } from "./sticker-cache.js";
 import { resolveTelegramToken } from "./token.js";
 
@@ -495,6 +496,13 @@ export async function handleTelegramAction(
       required: true,
       integer: true,
     });
+    if (chatId != null && messageId != null && wasSentByBot(chatId, messageId, cfg)) {
+      return jsonResult({
+        ok: false,
+        deleted: false,
+        warning: `Refusing to delete OpenClaw-sent Telegram message ${messageId}; visible assistant output is retained.`,
+      });
+    }
     const token = resolveTelegramToken(cfg, { accountId }).token;
     if (!token) {
       throw new Error(

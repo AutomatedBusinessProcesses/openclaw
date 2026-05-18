@@ -241,7 +241,11 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     };
   };
 
-  const enqueueDelivery = (kind: ReplyDispatchKind, normalized: ReplyPayload) => {
+  const enqueueDelivery = (
+    kind: ReplyDispatchKind,
+    normalized: ReplyPayload,
+    optionsForDelivery?: { appendFinalSuffix?: boolean },
+  ) => {
     pending += 1;
 
     // Determine if we should add human-like delay (only for block replies after the first).
@@ -266,6 +270,9 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
             cancelledCounts[kind] += 1;
             return;
           }
+        }
+        if (optionsForDelivery?.appendFinalSuffix) {
+          deliverPayload = appendFinalSuffix(deliverPayload);
         }
         await options.deliver(deliverPayload, { kind });
       })
@@ -306,7 +313,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
       }
     }
     for (const [index, payload] of finalPayloads.entries()) {
-      enqueueDelivery("final", index === suffixIndex ? appendFinalSuffix(payload) : payload);
+      enqueueDelivery("final", payload, { appendFinalSuffix: index === suffixIndex });
     }
   };
 

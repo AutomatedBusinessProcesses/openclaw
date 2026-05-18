@@ -102,6 +102,8 @@ export function createTelegramDraftStream(params: {
   minInitialChars?: number;
   /** Optional preview renderer (e.g. markdown -> HTML + parse mode). */
   renderText?: (text: string) => TelegramDraftPreview;
+  /** Called after Telegram accepts a preview sendMessage. */
+  onPreviewMessageSent?: (messageId: number) => void;
   /** Called when a late send resolves after forceNewMessage() switched generations. */
   onSupersededPreview?: (preview: SupersededTelegramPreview) => void;
   log?: (message: string) => void;
@@ -214,6 +216,7 @@ export function createTelegramDraftStream(params: {
     }
     const normalizedMessageId = Math.trunc(sentMessageId);
     const visibleSinceMs = Date.now();
+    params.onPreviewMessageSent?.(normalizedMessageId);
     if (sendGeneration !== generation) {
       params.onSupersededPreview?.({
         messageId: normalizedMessageId,
