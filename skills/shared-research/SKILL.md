@@ -27,6 +27,7 @@ Do not use AJ private home folders as context. If something is needed, ask for i
 - Shopper: `/Users/aj/Shared Research/OpenClaw/Shopper/`
 - Computer parts: `/Users/aj/Shared Research/OpenClaw/Computer Parts/`
 - Reports: `/Users/aj/Shared Research/OpenClaw/Reports/`
+- Goals: `/Users/aj/Shared Research/OpenClaw/Goals/`
 - IDE bridge inbox: `/Users/aj/Shared Research/OpenClaw/IDE Bridge/inbox/`
 - IDE bridge outbox: `/Users/aj/Shared Research/OpenClaw/IDE Bridge/outbox/`
 
