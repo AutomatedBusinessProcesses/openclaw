@@ -1455,7 +1455,49 @@ describe("dispatchTelegramMessage draft streaming", () => {
       expect(update).not.toContain("assistant draft continued:");
       expect(update).not.toContain("assistant draft:");
       expect(update).not.toContain("reply started");
-      expect(update.length).toBeLessThan(1400);
+      expect(update.length).toBeLessThan(950);
+    }
+    expect(draftStream.forceNewMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps Telegram progress working drafts inside small stream budgets", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReplyStart?.();
+        for (let index = 0; index < 8; index += 1) {
+          await replyOptions?.onPartialReply?.({
+            text: [
+              "assistant draft:",
+              "Power Ranking",
+              "assistant draft continued:",
+              `Option ${index + 1}: long server listing with CPUs, RAM, storage, PSU notes, and price math.`,
+              "assistant draft continued:",
+              "This must not become a tall raw-token Telegram wall.",
+            ].join("\n"),
+          });
+        }
+        await dispatcherOptions.deliver({ text: "Final summary." }, { kind: "final" });
+        return { queuedFinal: true };
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      textLimit: 700,
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Working" } } },
+    });
+
+    const updates = draftStream.update.mock.calls.map((call) => call[0]);
+    expect(updates.length).toBeGreaterThan(0);
+    for (const update of updates) {
+      expect(update).toMatch(/^```text\nWORKING DRAFT\n/s);
+      expect(update.length).toBeLessThanOrEqual(700);
+      expect(update).not.toContain("assistant draft continued:");
+      expect(update).not.toContain("assistant draft:");
+      expect(update).not.toContain("reply started");
     }
     expect(draftStream.forceNewMessage).not.toHaveBeenCalled();
   });

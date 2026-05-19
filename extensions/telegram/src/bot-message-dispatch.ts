@@ -400,11 +400,13 @@ function resolveTelegramReasoningLevel(params: {
   return configDefault;
 }
 
-const MAX_WORKING_DRAFT_ENTRY_CHARS = 220;
-const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 4;
-const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 420;
-const MAX_WORKING_DRAFT_ASSISTANT_LINES = 5;
-const MAX_WORKING_DRAFT_BODY_CHARS = 1200;
+const MAX_WORKING_DRAFT_ENTRY_CHARS = 180;
+const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 3;
+const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 320;
+const MAX_WORKING_DRAFT_ASSISTANT_LINES = 4;
+const MAX_WORKING_DRAFT_BODY_CHARS = 850;
+const MIN_WORKING_DRAFT_BODY_CHARS = 240;
+const WORKING_DRAFT_STREAM_OVERHEAD_CHARS = 96;
 const WORKING_DRAFT_PLACEHOLDER = "Working...";
 
 function sanitizeProgressMarkdownText(text: string): string {
@@ -426,11 +428,25 @@ function clipWorkingDraftLogEntry(text: string): string {
   return `${text.slice(0, MAX_WORKING_DRAFT_ENTRY_CHARS - 3).trimEnd()}...`;
 }
 
-function clipWorkingDraftBody(text: string): string {
-  if (text.length <= MAX_WORKING_DRAFT_BODY_CHARS) {
+function resolveWorkingDraftBodyLimit(maxChars?: number): number {
+  if (typeof maxChars !== "number" || !Number.isFinite(maxChars)) {
+    return MAX_WORKING_DRAFT_BODY_CHARS;
+  }
+  return Math.max(
+    MIN_WORKING_DRAFT_BODY_CHARS,
+    Math.min(
+      MAX_WORKING_DRAFT_BODY_CHARS,
+      Math.trunc(maxChars) - WORKING_DRAFT_STREAM_OVERHEAD_CHARS,
+    ),
+  );
+}
+
+function clipWorkingDraftBody(text: string, maxChars?: number): string {
+  const bodyLimit = resolveWorkingDraftBodyLimit(maxChars);
+  if (text.length <= bodyLimit) {
     return text;
   }
-  return `${text.slice(0, MAX_WORKING_DRAFT_BODY_CHARS - 3).trimEnd()}...`;
+  return `${text.slice(0, bodyLimit - 3).trimEnd()}...`;
 }
 
 function clipWorkingDraftAssistantPreview(text: string): string {
@@ -547,12 +563,18 @@ function formatWorkingDraftCodeBlockText(body: string): string {
   return `${fence}text\nWORKING DRAFT\n${normalized}\n${fence}`;
 }
 
-function formatWorkingDraftLogText(entries: string[], options?: { tracePath?: string }): string {
+function formatWorkingDraftLogText(
+  entries: string[],
+  options?: { tracePath?: string; maxChars?: number },
+): string {
   const traceLine = options?.tracePath
     ? `Log: ${shortenWorkingDraftTracePath(options.tracePath)}`
     : undefined;
   const visibleEntries = entries.length > 0 ? entries : [WORKING_DRAFT_PLACEHOLDER];
-  const body = clipWorkingDraftBody([traceLine, ...visibleEntries].filter(Boolean).join("\n"));
+  const body = clipWorkingDraftBody(
+    [traceLine, ...visibleEntries].filter(Boolean).join("\n"),
+    options?.maxChars,
+  );
   return formatWorkingDraftCodeBlockText(body);
 }
 
@@ -913,6 +935,7 @@ export const dispatchTelegramMessage = async ({
     ensureWorkingDraftStarted();
     const streamText = formatWorkingDraftLogText(visibleWorkingDraftEntries(), {
       tracePath: workingDraftTracePath,
+      maxChars: draftMaxChars,
     });
     if (!streamText || streamText === answerLane.lastPartialText) {
       return;
