@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { Bot } from "grammy";
 import {
   DEFAULT_TIMING,
@@ -167,6 +170,53 @@ type DispatchTelegramMessageParams = {
   opts: Pick<TelegramBotOptions, "token">;
 };
 
+function withTelegramFilesystemBoundary(cfg: OpenClawConfig): OpenClawConfig {
+  const tools = cfg.tools ?? {};
+  const fsTools = tools.fs ?? {};
+
+  if (fsTools.workspaceOnly === true) {
+    return cfg;
+  }
+
+  // Telegram is untrusted ingress. Prompt instructions cannot widen local filesystem access.
+  return {
+    ...cfg,
+    tools: {
+      ...tools,
+      fs: {
+        ...fsTools,
+        workspaceOnly: true,
+      },
+    },
+  };
+}
+
+function withTelegramProgressBoundary(telegramCfg: TelegramAccountConfig): TelegramAccountConfig {
+  const streaming = telegramCfg.streaming ?? {};
+  const progress = streaming.progress ?? {};
+  const configuredMaxLines = progress.maxLines;
+  const maxLines =
+    typeof configuredMaxLines === "number"
+      ? Math.max(1, Math.min(configuredMaxLines, MAX_WORKING_DRAFT_VISIBLE_ENTRIES))
+      : MAX_WORKING_DRAFT_VISIBLE_ENTRIES;
+
+  if (progress.commandText === "status" && progress.maxLines === maxLines) {
+    return telegramCfg;
+  }
+
+  return {
+    ...telegramCfg,
+    streaming: {
+      ...streaming,
+      progress: {
+        ...progress,
+        commandText: "status",
+        maxLines,
+      },
+    },
+  };
+}
+
 type TelegramReasoningLevel = "off" | "on" | "stream";
 
 type TelegramReplyFenceState = {
@@ -272,6 +322,9 @@ function resolveTelegramReasoningLevel(params: {
 }
 
 const MAX_WORKING_DRAFT_ENTRY_CHARS = 1600;
+const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 6;
+const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 1400;
+const WORKING_DRAFT_PLACEHOLDER = "Working...";
 
 function sanitizeProgressMarkdownText(text: string): string {
   return text.replaceAll("`", "'");
@@ -289,7 +342,86 @@ function clipWorkingDraftLogEntry(text: string): string {
   if (text.length <= MAX_WORKING_DRAFT_ENTRY_CHARS) {
     return text;
   }
-  return `${text.slice(0, MAX_WORKING_DRAFT_ENTRY_CHARS - 1).trimEnd()}…`;
+  return `${text.slice(0, MAX_WORKING_DRAFT_ENTRY_CHARS - 3).trimEnd()}...`;
+}
+
+function clipWorkingDraftAssistantPreview(text: string): string {
+  if (text.length <= MAX_WORKING_DRAFT_ASSISTANT_CHARS) {
+    return text;
+  }
+  return `...${text.slice(text.length - MAX_WORKING_DRAFT_ASSISTANT_CHARS + 3).trimStart()}`;
+}
+
+function compactWorkingDraftAssistantText(text: string): string {
+  const normalized = sanitizeWorkingDraftLogText(text);
+  if (!normalized) {
+    return "";
+  }
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line, index, all) => line.trim() || all[index - 1]?.trim());
+  return clipWorkingDraftAssistantPreview(lines.join("\n").trim());
+}
+
+function resolveHomePath(input: string): string {
+  if (input === "~") {
+    return os.homedir();
+  }
+  if (input.startsWith("~/")) {
+    return path.join(os.homedir(), input.slice(2));
+  }
+  return path.resolve(input);
+}
+
+function resolveOpenClawWorkspaceFallback(): string {
+  const openclawHome = process.env.OPENCLAW_HOME
+    ? resolveHomePath(process.env.OPENCLAW_HOME)
+    : path.join(os.homedir(), ".openclaw");
+  return path.join(openclawHome, "workspace");
+}
+
+function resolveWorkingDraftWorkspaceDir(cfg: OpenClawConfig, agentId: string): string {
+  const agentWorkspace = cfg.agents?.list?.find((entry) => entry.id === agentId)?.workspace;
+  const configuredWorkspace = agentWorkspace ?? cfg.agents?.defaults?.workspace;
+  return configuredWorkspace
+    ? resolveHomePath(configuredWorkspace)
+    : resolveOpenClawWorkspaceFallback();
+}
+
+function safeWorkingDraftLogSegment(value: unknown): string {
+  return (
+    String(value ?? "unknown")
+      .replace(/[^A-Za-z0-9_.-]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .slice(0, 80) || "unknown"
+  );
+}
+
+function shortenHomePath(filePath: string): string {
+  const home = os.homedir();
+  return filePath === home || filePath.startsWith(`${home}${path.sep}`)
+    ? `~${filePath.slice(home.length)}`
+    : filePath;
+}
+
+function resolveWorkingDraftTracePath(params: {
+  cfg: OpenClawConfig;
+  agentId: string;
+  accountId: string;
+  chatId: string | number;
+  threadId?: string | number;
+}): string {
+  const workspaceDir = resolveWorkingDraftWorkspaceDir(params.cfg, params.agentId);
+  const stamp = new Date().toISOString().replace(/[:.]/gu, "-");
+  const fileName = [
+    "telegram",
+    safeWorkingDraftLogSegment(params.accountId),
+    safeWorkingDraftLogSegment(params.chatId),
+    safeWorkingDraftLogSegment(params.threadId ?? "dm"),
+    stamp,
+  ].join("-");
+  return path.join(workspaceDir, "logs", "telegram-working-drafts", `${fileName}.md`);
 }
 
 function longestBacktickRun(text: string): number {
@@ -307,13 +439,15 @@ function longestBacktickRun(text: string): number {
 }
 
 function formatWorkingDraftCodeBlockText(body: string): string {
-  const normalized = body.trim() || "reply started";
+  const normalized = body.trim() || WORKING_DRAFT_PLACEHOLDER;
   const fence = "`".repeat(Math.max(3, longestBacktickRun(normalized) + 1));
   return `${fence}text\nWORKING DRAFT\n${normalized}\n${fence}`;
 }
 
-function formatWorkingDraftLogText(entries: string[]): string {
-  const body = entries.length > 0 ? entries.join("\n\n") : "reply started";
+function formatWorkingDraftLogText(entries: string[], options?: { tracePath?: string }): string {
+  const traceLine = options?.tracePath ? `Log: ${shortenHomePath(options.tracePath)}` : undefined;
+  const visibleEntries = entries.length > 0 ? entries : [WORKING_DRAFT_PLACEHOLDER];
+  const body = [traceLine, ...visibleEntries].filter(Boolean).join("\n\n");
   return formatWorkingDraftCodeBlockText(body);
 }
 
@@ -351,6 +485,8 @@ export const dispatchTelegramMessage = async ({
     removeAckAfterReply,
     statusReactionController,
   } = context;
+  const agentRunCfg = withTelegramFilesystemBoundary(cfg);
+  const telegramProgressCfg = withTelegramProgressBoundary(telegramCfg);
   const statusReactionTiming = {
     ...DEFAULT_TIMING,
     ...cfg.messages?.statusReactions?.timing,
@@ -494,7 +630,7 @@ export const dispatchTelegramMessage = async ({
       : undefined;
   const draftMinInitialChars = streamMode === "progress" ? 0 : DRAFT_MIN_INITIAL_CHARS;
   const progressSeed = `${route.accountId}:${chatId}:${threadSpec.id ?? ""}`;
-  const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, route.agentId);
+  const mediaLocalRoots = getAgentScopedMediaLocalRoots(agentRunCfg, route.agentId);
   const createDraftLane = (laneName: LaneName, enabled: boolean): DraftLaneState => {
     const stream = enabled
       ? (telegramDeps.createTelegramDraftStream ?? createTelegramDraftStream)({
@@ -532,27 +668,103 @@ export const dispatchTelegramMessage = async ({
   const answerLane = lanes.answer;
   const reasoningLane = lanes.reasoning;
   const streamToolProgressEnabled =
-    Boolean(answerLane.stream) && resolveChannelStreamingPreviewToolProgress(telegramCfg);
+    Boolean(answerLane.stream) && resolveChannelStreamingPreviewToolProgress(telegramProgressCfg);
   let streamToolProgressSuppressed = false;
   let streamToolProgressLines: string[] = [];
-  const workingDraftLogEntries: string[] = [];
+  type WorkingDraftVisibleEntry = { key: string; text: string };
+  const workingDraftLogEntries: WorkingDraftVisibleEntry[] = [];
+  let workingDraftEntrySequence = 0;
   let lastWorkingDraftAnswerText = "";
   let lastWorkingDraftReasoningText = "";
-  const appendWorkingDraftEntry = (text: string): boolean => {
+  const workingDraftTracePath =
+    streamMode === "progress" && answerLane.stream
+      ? resolveWorkingDraftTracePath({
+          cfg: agentRunCfg,
+          agentId: route.agentId,
+          accountId: route.accountId,
+          chatId,
+          threadId: threadSpec.id,
+        })
+      : undefined;
+  let workingDraftTraceQueue = Promise.resolve();
+  const appendWorkingDraftTrace = (label: string, text: string) => {
+    const normalized = sanitizeWorkingDraftLogText(text);
+    if (!workingDraftTracePath || !normalized || process.env.VITEST === "true") {
+      return;
+    }
+    const timestamp = new Date().toISOString();
+    const traceBlock = [
+      "",
+      `## ${timestamp} - ${label}`,
+      "",
+      "```text",
+      normalized,
+      "```",
+      "",
+    ].join("\n");
+    workingDraftTraceQueue = workingDraftTraceQueue
+      .then(async () => {
+        await fs.mkdir(path.dirname(workingDraftTracePath), { recursive: true });
+        await fs.appendFile(workingDraftTracePath, traceBlock);
+      })
+      .catch((err) => {
+        runtime.error?.(danger(`telegram working draft trace append failed: ${String(err)}`));
+      });
+  };
+  const trimWorkingDraftEntries = () => {
+    while (workingDraftLogEntries.length > MAX_WORKING_DRAFT_VISIBLE_ENTRIES) {
+      const removableIndex = workingDraftLogEntries.findIndex(
+        (entry) => entry.key !== "answer:draft" && entry.key !== "reasoning:draft",
+      );
+      workingDraftLogEntries.splice(removableIndex >= 0 ? removableIndex : 0, 1);
+    }
+  };
+  const upsertWorkingDraftEntry = (key: string, text: string): boolean => {
     const normalized = clipWorkingDraftLogEntry(sanitizeWorkingDraftLogText(text));
-    if (!normalized || workingDraftLogEntries.at(-1) === normalized) {
+    if (!normalized) {
       return false;
     }
-    if (workingDraftLogEntries.length === 0 && normalized !== "reply started") {
-      workingDraftLogEntries.push("reply started");
+    const existing = workingDraftLogEntries.find((entry) => entry.key === key);
+    if (existing) {
+      if (existing.text === normalized) {
+        return false;
+      }
+      existing.text = normalized;
+      trimWorkingDraftEntries();
+      return true;
     }
-    workingDraftLogEntries.push(normalized);
+    if (workingDraftLogEntries.at(-1)?.text === normalized) {
+      return false;
+    }
+    workingDraftLogEntries.push({ key, text: normalized });
+    trimWorkingDraftEntries();
     return true;
+  };
+  const appendWorkingDraftEntry = (text: string): boolean => {
+    workingDraftEntrySequence += 1;
+    return upsertWorkingDraftEntry(`event:${workingDraftEntrySequence}`, text);
+  };
+  const renderWorkingDraftAssistantEntry = (params: {
+    laneName: LaneName;
+    text: string;
+  }): boolean => {
+    const preview = compactWorkingDraftAssistantText(params.text);
+    if (!preview) {
+      return false;
+    }
+    const label = params.laneName === "reasoning" ? "Reasoning" : "Draft";
+    return upsertWorkingDraftEntry(`${params.laneName}:draft`, `${label}:\n${preview}`);
   };
   const ensureWorkingDraftStarted = () => {
     if (workingDraftLogEntries.length === 0) {
-      appendWorkingDraftEntry("reply started");
+      upsertWorkingDraftEntry("status", WORKING_DRAFT_PLACEHOLDER);
     }
+  };
+  const visibleWorkingDraftEntries = () => {
+    if (workingDraftLogEntries.length === 0) {
+      return [];
+    }
+    return workingDraftLogEntries.map((entry) => entry.text);
   };
   const appendWorkingDraftTextDelta = (params: {
     laneName: LaneName;
@@ -568,29 +780,26 @@ export const dispatchTelegramMessage = async ({
     if (normalized === previous) {
       return false;
     }
-    let entry: string;
-    if (previous && normalized.startsWith(previous)) {
-      const delta = sanitizeWorkingDraftLogText(normalized.slice(previous.length));
-      if (!delta) {
-        return false;
-      }
-      entry = `${params.label} continued:\n${delta}`;
-    } else {
-      entry = `${params.label}:\n${normalized}`;
-    }
+    const delta =
+      previous && normalized.startsWith(previous)
+        ? sanitizeWorkingDraftLogText(normalized.slice(previous.length))
+        : normalized;
+    appendWorkingDraftTrace(params.label, delta);
     if (params.laneName === "answer") {
       lastWorkingDraftAnswerText = normalized;
     } else {
       lastWorkingDraftReasoningText = normalized;
     }
-    return appendWorkingDraftEntry(entry);
+    return renderWorkingDraftAssistantEntry({ laneName: params.laneName, text: normalized });
   };
   const renderProgressDraft = async (options?: { flush?: boolean }) => {
     if (!answerLane.stream || streamMode !== "progress") {
       return;
     }
     ensureWorkingDraftStarted();
-    const streamText = formatWorkingDraftLogText(workingDraftLogEntries);
+    const streamText = formatWorkingDraftLogText(visibleWorkingDraftEntries(), {
+      tracePath: workingDraftTracePath,
+    });
     if (!streamText || streamText === answerLane.lastPartialText) {
       return;
     }
@@ -625,6 +834,9 @@ export const dispatchTelegramMessage = async ({
       return;
     }
     const normalized = sanitizeProgressMarkdownText(line?.replace(/\s+/g, " ").trim() ?? "");
+    if (normalized) {
+      appendWorkingDraftTrace("progress", normalized);
+    }
     if (streamMode !== "progress") {
       if (!streamToolProgressEnabled || streamToolProgressSuppressed || !normalized) {
         return;
@@ -634,10 +846,10 @@ export const dispatchTelegramMessage = async ({
         return;
       }
       streamToolProgressLines = [...streamToolProgressLines, normalized].slice(
-        -resolveChannelProgressDraftMaxLines(telegramCfg),
+        -resolveChannelProgressDraftMaxLines(telegramProgressCfg),
       );
       const streamText = formatChannelProgressDraftText({
-        entry: telegramCfg,
+        entry: telegramProgressCfg,
         lines: streamToolProgressLines,
         seed: progressSeed,
       });
@@ -653,7 +865,7 @@ export const dispatchTelegramMessage = async ({
       const previous = streamToolProgressLines.at(-1);
       if (previous !== normalized) {
         streamToolProgressLines = [...streamToolProgressLines, normalized].slice(
-          -resolveChannelProgressDraftMaxLines(telegramCfg),
+          -resolveChannelProgressDraftMaxLines(telegramProgressCfg),
         );
         appendWorkingDraftEntry(normalized);
       }
@@ -1116,7 +1328,7 @@ export const dispatchTelegramMessage = async ({
     const { onModelSelected, ...replyPipeline } = (
       telegramDeps.createChannelMessageReplyPipeline ?? createChannelMessageReplyPipeline
     )({
-      cfg,
+      cfg: agentRunCfg,
       agentId: route.agentId,
       channel: "telegram",
       accountId: route.accountId,
@@ -1165,7 +1377,7 @@ export const dispatchTelegramMessage = async ({
             runDispatch: () =>
               telegramDeps.dispatchReplyWithBufferedBlockDispatcher({
                 ctx: ctxPayload,
-                cfg,
+                cfg: agentRunCfg,
                 dispatcherOptions: {
                   ...replyPipeline,
                   ...(onTelegramReplyStart ? { onReplyStart: onTelegramReplyStart } : {}),
@@ -1380,7 +1592,7 @@ export const dispatchTelegramMessage = async ({
                     const toolName = payload.name?.trim();
                     const progressPromise = pushStreamToolProgress(
                       formatChannelProgressDraftLineForEntry(
-                        telegramCfg,
+                        telegramProgressCfg,
                         {
                           event: "tool",
                           name: toolName,
@@ -1398,7 +1610,7 @@ export const dispatchTelegramMessage = async ({
                   },
                   onItemEvent: async (payload) => {
                     await pushStreamToolProgress(
-                      formatChannelProgressDraftLineForEntry(telegramCfg, {
+                      formatChannelProgressDraftLineForEntry(telegramProgressCfg, {
                         event: "item",
                         itemKind: payload.kind,
                         title: payload.title,
@@ -1500,6 +1712,7 @@ export const dispatchTelegramMessage = async ({
       runtime.error?.(danger(`telegram dispatch failed: ${String(err)}`));
     } finally {
       await draftLaneEventQueue;
+      await workingDraftTraceQueue;
       progressDraftGate.cancel();
       const lanesToCleanup: Array<{ laneName: LaneName; lane: DraftLaneState }> = [
         { laneName: "answer", lane: answerLane },

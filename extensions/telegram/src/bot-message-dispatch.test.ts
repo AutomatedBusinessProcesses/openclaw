@@ -297,6 +297,13 @@ describe("dispatchTelegramMessage draft streaming", () => {
     return `\`\`\`text\nWORKING DRAFT\n${body}\n\`\`\``;
   }
 
+  function workingDraftRegex(body: string): RegExp {
+    return new RegExp(
+      `^\\\`\\\`\\\`text\\nWORKING DRAFT\\nLog: .*telegram-working-drafts.*\\n\\n${body}\\n\\\`\\\`\\\`$`,
+      "s",
+    );
+  }
+
   function createContext(overrides?: Partial<TelegramMessageContext>): TelegramMessageContext {
     const base = {
       ctxPayload: {},
@@ -387,6 +394,33 @@ describe("dispatchTelegramMessage draft streaming", () => {
       },
     } as unknown as Bot;
   }
+
+  it("enforces workspace-only filesystem tools for Telegram-originated turns", async () => {
+    const context = createContext();
+
+    await dispatchWithContext({
+      context,
+      cfg: { tools: { fs: { workspaceOnly: false } } },
+    });
+
+    expect(getAgentScopedMediaLocalRoots).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          fs: expect.objectContaining({ workspaceOnly: true }),
+        }),
+      }),
+      "default",
+    );
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cfg: expect.objectContaining({
+          tools: expect.objectContaining({
+            fs: expect.objectContaining({ workspaceOnly: true }),
+          }),
+        }),
+      }),
+    );
+  });
 
   function createRuntime(): Parameters<typeof dispatchTelegramMessage>[0]["runtime"] {
     return {
@@ -1073,7 +1107,10 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(answerDraftStream.update).toHaveBeenCalledWith(
-      workingDraftPreview("reply started\n\n🛠️ Exec\n\n🛠️ Exec: git rev-parse --abbrev-ref HEAD"),
+      expect.stringMatching(workingDraftRegex("🛠️ Exec")),
+    );
+    expect(answerDraftStream.update).not.toHaveBeenCalledWith(
+      expect.stringContaining("git rev-parse"),
     );
     expect(answerDraftStream.update).not.toHaveBeenCalledWith("Branch is up to date");
     expect(answerDraftStream.discard).toHaveBeenCalledTimes(1);
@@ -1105,7 +1142,10 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(answerDraftStream.update).toHaveBeenLastCalledWith(
-      workingDraftPreview("Snapping...\n🛠️ Exec\n🛠️ Exec: git rev-parse --abbrev-ref HEAD"),
+      workingDraftPreview("Snapping...\n🛠️ Exec"),
+    );
+    expect(answerDraftStream.update).not.toHaveBeenCalledWith(
+      expect.stringContaining("git rev-parse"),
     );
   });
 
@@ -1172,7 +1212,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringMatching(/^```text\nWORKING DRAFT\nreply started\n\n🛠️ Exec\n```$/),
+      expect.stringMatching(workingDraftRegex("🛠️ Exec")),
     );
     expect(draftStream.flush).toHaveBeenCalled();
   });
@@ -1191,7 +1231,9 @@ describe("dispatchTelegramMessage draft streaming", () => {
       telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
     });
 
-    expect(draftStream.update).toHaveBeenCalledWith(workingDraftPreview("reply started"));
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringMatching(workingDraftRegex("Working\\.\\.\\.")),
+    );
     expect(draftStream.flush).toHaveBeenCalled();
     expect(draftStream.discard).toHaveBeenCalledTimes(1);
     expect(draftStream.clear).not.toHaveBeenCalled();
@@ -1220,12 +1262,13 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringContaining("assistant draft:\nI found the migration note in setup.md."),
+      expect.stringContaining("Draft:\nI found the migration note in setup.md."),
     );
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "assistant draft continued:\nThe important detail is rollback flag X.",
-      ),
+      expect.stringContaining("The important detail is rollback flag X."),
+    );
+    expect(draftStream.update).not.toHaveBeenCalledWith(
+      expect.stringContaining("assistant draft continued:"),
     );
     expect(draftStream.discard).toHaveBeenCalledTimes(1);
     expect(draftStream.clear).not.toHaveBeenCalled();
@@ -1254,9 +1297,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
       const updateBeforeStatusReaction = draftStream.update.mock.calls.at(-1)?.[0];
       releaseSetTool?.();
       await pendingToolStart;
-      expect(updateBeforeStatusReaction).toMatch(
-        /^```text\nWORKING DRAFT\nreply started\n\n🛠️ Exec\n```$/,
-      );
+      expect(updateBeforeStatusReaction).toMatch(workingDraftRegex("🛠️ Exec"));
       return { queuedFinal: false };
     });
 
@@ -1293,9 +1334,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^```text\nWORKING DRAFT\nreply started\n\n🔎 Web Search: docs lookup\n\ntests passed\n```$/,
-      ),
+      expect.stringMatching(workingDraftRegex("🔎 Web Search: docs lookup\\n\\ntests passed")),
     );
     expect(draftStream.forceNewMessage).not.toHaveBeenCalled();
     expect(draftStream.materialize).not.toHaveBeenCalled();
