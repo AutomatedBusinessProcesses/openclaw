@@ -395,7 +395,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     } as unknown as Bot;
   }
 
-  it("enforces workspace-only filesystem tools for Telegram-originated turns", async () => {
+  it("enforces local access boundaries for unsandboxed Telegram-originated turns", async () => {
     const context = createContext();
 
     await dispatchWithContext({
@@ -406,6 +406,18 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(getAgentScopedMediaLocalRoots).toHaveBeenCalledWith(
       expect.objectContaining({
         tools: expect.objectContaining({
+          deny: expect.arrayContaining([
+            "bash",
+            "exec",
+            "process",
+            "agents_list",
+            "sessions_list",
+            "sessions_history",
+            "sessions_spawn",
+            "sessions_send",
+            "sessions_yield",
+            "subagents",
+          ]),
           fs: expect.objectContaining({ workspaceOnly: true }),
         }),
       }),
@@ -415,11 +427,81 @@ describe("dispatchTelegramMessage draft streaming", () => {
       expect.objectContaining({
         cfg: expect.objectContaining({
           tools: expect.objectContaining({
+            deny: expect.arrayContaining([
+              "bash",
+              "exec",
+              "process",
+              "agents_list",
+              "sessions_list",
+              "sessions_history",
+              "sessions_spawn",
+              "sessions_send",
+              "sessions_yield",
+              "subagents",
+            ]),
             fs: expect.objectContaining({ workspaceOnly: true }),
           }),
         }),
       }),
     );
+  });
+
+  it("preserves explicit Telegram tool denylist entries while hardening local access", async () => {
+    const context = createContext();
+
+    await dispatchWithContext({
+      context,
+      cfg: { tools: { deny: ["web_search"], fs: { workspaceOnly: false } } },
+    });
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cfg: expect.objectContaining({
+          tools: expect.objectContaining({
+            deny: expect.arrayContaining([
+              "web_search",
+              "bash",
+              "exec",
+              "process",
+              "agents_list",
+              "sessions_list",
+              "sessions_history",
+              "sessions_spawn",
+              "sessions_send",
+              "sessions_yield",
+              "subagents",
+            ]),
+            fs: expect.objectContaining({ workspaceOnly: true }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("allows local execution tools for fully sandboxed Telegram agents", async () => {
+    const context = createContext({ route: { agentId: "ops" } as TelegramMessageContext["route"] });
+
+    await dispatchWithContext({
+      context,
+      cfg: {
+        agents: { list: [{ id: "ops", sandbox: { mode: "all" } }] },
+        tools: { fs: { workspaceOnly: false } },
+      },
+    });
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cfg: expect.objectContaining({
+          tools: expect.objectContaining({
+            fs: expect.objectContaining({ workspaceOnly: true }),
+          }),
+        }),
+      }),
+    );
+    const hardenedCfg = vi
+      .mocked(dispatchReplyWithBufferedBlockDispatcher)
+      .mock.calls.at(-1)?.[0].cfg;
+    expect(hardenedCfg?.tools?.deny ?? []).not.toEqual(expect.arrayContaining(["exec", "process"]));
   });
 
   function createRuntime(): Parameters<typeof dispatchTelegramMessage>[0]["runtime"] {

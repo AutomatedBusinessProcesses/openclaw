@@ -170,19 +170,49 @@ type DispatchTelegramMessageParams = {
   opts: Pick<TelegramBotOptions, "token">;
 };
 
-function withTelegramFilesystemBoundary(cfg: OpenClawConfig): OpenClawConfig {
+const TELEGRAM_UNSANDBOXED_LOCAL_TOOL_DENYLIST = [
+  "bash",
+  "exec",
+  "process",
+  "agents_list",
+  "sessions_list",
+  "sessions_history",
+  "sessions_spawn",
+  "sessions_send",
+  "sessions_yield",
+  "subagents",
+];
+
+function mergeToolDenylist(existing: string[] | undefined, additions: string[]): string[] {
+  return Array.from(new Set([...(existing ?? []), ...additions]));
+}
+
+function resolveAgentSandboxMode(cfg: OpenClawConfig, agentId: string) {
+  return (
+    cfg.agents?.list?.find((agent) => agent.id === agentId)?.sandbox?.mode ??
+    cfg.agents?.defaults?.sandbox?.mode
+  );
+}
+
+function withTelegramLocalAccessBoundary(cfg: OpenClawConfig, agentId: string): OpenClawConfig {
   const tools = cfg.tools ?? {};
   const fsTools = tools.fs ?? {};
+  const denyLocalExecution = resolveAgentSandboxMode(cfg, agentId) !== "all";
+  const denylist = denyLocalExecution
+    ? mergeToolDenylist(tools.deny, TELEGRAM_UNSANDBOXED_LOCAL_TOOL_DENYLIST)
+    : tools.deny;
 
-  if (fsTools.workspaceOnly === true) {
+  if (fsTools.workspaceOnly === true && denylist === tools.deny) {
     return cfg;
   }
 
-  // Telegram is untrusted ingress. Prompt instructions cannot widen local filesystem access.
+  // Telegram is untrusted ingress. Prompt text cannot widen local filesystem access or
+  // route around it through host shell/subagent tools unless the run is fully sandboxed.
   return {
     ...cfg,
     tools: {
       ...tools,
+      ...(denyLocalExecution ? { deny: denylist } : {}),
       fs: {
         ...fsTools,
         workspaceOnly: true,
@@ -485,7 +515,7 @@ export const dispatchTelegramMessage = async ({
     removeAckAfterReply,
     statusReactionController,
   } = context;
-  const agentRunCfg = withTelegramFilesystemBoundary(cfg);
+  const agentRunCfg = withTelegramLocalAccessBoundary(cfg, route.agentId);
   const telegramProgressCfg = withTelegramProgressBoundary(telegramCfg);
   const statusReactionTiming = {
     ...DEFAULT_TIMING,
