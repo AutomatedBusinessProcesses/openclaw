@@ -19,6 +19,7 @@ import type { TelegramBotOptions } from "./bot.types.js";
 import { buildTelegramThreadParams } from "./bot/helpers.js";
 import type { TelegramContext, TelegramStreamMode } from "./bot/types.js";
 import type { TelegramReplyChainEntry } from "./message-cache.js";
+import { appendTelegramPromptLog } from "./prompt-log.js";
 
 const telegramInboundLog = createSubsystemLogger("gateway/channels/telegram").child("inbound");
 
@@ -141,6 +142,9 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
         mediaType: allMedia[0]?.contentType,
       }),
     );
+    await appendTelegramPromptLog({ cfg, context, media: allMedia }).catch((err) => {
+      logVerbose(`telegram prompt log failed for chat ${context.chatId}: ${String(err)}`);
+    });
     try {
       await dispatchTelegramMessage({
         context,

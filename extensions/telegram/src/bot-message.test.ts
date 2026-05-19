@@ -3,6 +3,7 @@ import type { TelegramBotDeps } from "./bot-deps.js";
 
 const buildTelegramMessageContext = vi.hoisted(() => vi.fn());
 const dispatchTelegramMessage = vi.hoisted(() => vi.fn());
+const appendTelegramPromptLog = vi.hoisted(() => vi.fn(async () => undefined));
 const telegramInboundInfo = vi.hoisted(() => vi.fn());
 const upsertChannelPairingRequest = vi.hoisted(() =>
   vi.fn(async () => ({ code: "PAIRCODE", created: true })),
@@ -27,6 +28,10 @@ vi.mock("./bot-message-dispatch.js", () => ({
   dispatchTelegramMessage,
 }));
 
+vi.mock("./prompt-log.js", () => ({
+  appendTelegramPromptLog,
+}));
+
 let createTelegramMessageProcessor: typeof import("./bot-message.js").createTelegramMessageProcessor;
 let formatTelegramInboundLogLine: typeof import("./bot-message.js").formatTelegramInboundLogLine;
 
@@ -39,6 +44,7 @@ describe("telegram bot message processor", () => {
   beforeEach(() => {
     buildTelegramMessageContext.mockClear();
     dispatchTelegramMessage.mockClear();
+    appendTelegramPromptLog.mockClear();
     telegramInboundInfo.mockClear();
     upsertChannelPairingRequest.mockClear();
   });
@@ -136,6 +142,16 @@ describe("telegram bot message processor", () => {
     expect(telegramInboundInfo).toHaveBeenCalledWith(
       "Inbound message telegram:123 -> @openclaw_bot (direct, 11 chars)",
     );
+    expect(appendTelegramPromptLog).toHaveBeenCalledWith({
+      cfg: baseDeps.cfg,
+      context: expect.objectContaining({
+        ctxPayload: expect.objectContaining({ RawBody: "hello there" }),
+      }),
+      media: [],
+    });
+    expect(appendTelegramPromptLog.mock.invocationCallOrder[0]).toBeLessThan(
+      dispatchTelegramMessage.mock.invocationCallOrder[0],
+    );
   });
 
   it("skips dispatch when no context is produced", async () => {
@@ -144,6 +160,7 @@ describe("telegram bot message processor", () => {
     await processSampleMessage(processMessage);
     expect(dispatchTelegramMessage).not.toHaveBeenCalled();
     expect(telegramInboundInfo).not.toHaveBeenCalled();
+    expect(appendTelegramPromptLog).not.toHaveBeenCalled();
   });
 
   it("formats Telegram inbound summaries without message content", () => {
@@ -178,6 +195,17 @@ describe("telegram bot message processor", () => {
     await processSampleMessage(processMessage);
 
     expect(sendTyping).toHaveBeenCalledTimes(1);
+    expect(dispatchTelegramMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps dispatch running when prompt logging fails", async () => {
+    appendTelegramPromptLog.mockRejectedValueOnce(new Error("disk full"));
+    buildTelegramMessageContext.mockResolvedValue(createMessageContext());
+
+    const processMessage = createTelegramMessageProcessor(baseDeps);
+    await processSampleMessage(processMessage);
+
+    expect(appendTelegramPromptLog).toHaveBeenCalledTimes(1);
     expect(dispatchTelegramMessage).toHaveBeenCalledTimes(1);
   });
 
