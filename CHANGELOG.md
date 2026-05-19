@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Telegram/streaming: keep progress working-draft previews out of Telegram reply quotes so each draft bubble stays compact while final replies still preserve normal reply targeting.
 - Telegram/streaming: render preserved tool/progress updates as copyable `WORKING DRAFT` code blocks in both partial and progress preview modes, and apply the same formatting to Telegram tool-summary deliveries while leaving finals and approval prompts untouched.
 - Skills/audio: replace the local voice policy skill with `/transcribe`, a local-only transcript skill that preserves the current message transcript when skill commands rewrite the request.
 - Chat commands: make `/tools` show available runtime tools with descriptions and best-use guidance by default, leaving `/tools compact` for the names-only view.

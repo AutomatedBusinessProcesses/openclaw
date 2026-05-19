@@ -752,9 +752,11 @@ export const dispatchTelegramMessage = async ({
     !forceBlockStreamingForReasoning;
   const canStreamReasoningDraft = streamReasoningDraft;
   const draftReplyToMessageId =
-    replyToMode !== "off" && typeof msg.message_id === "number"
-      ? (replyQuoteMessageId ?? msg.message_id)
-      : undefined;
+    streamMode === "progress"
+      ? undefined
+      : replyToMode !== "off" && typeof msg.message_id === "number"
+        ? (replyQuoteMessageId ?? msg.message_id)
+        : undefined;
   const draftMinInitialChars = streamMode === "progress" ? 0 : DRAFT_MIN_INITIAL_CHARS;
   const progressSeed = `${route.accountId}:${chatId}:${threadSpec.id ?? ""}`;
   const mediaLocalRoots = getAgentScopedMediaLocalRoots(agentRunCfg, route.agentId);

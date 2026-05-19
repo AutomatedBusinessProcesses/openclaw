@@ -161,7 +161,7 @@ Telegram:
 
 - Uses `sendMessage` + append-only `editMessageText` preview updates across DMs and group/topics.
 - Final text edits the active preview in place only when it preserves already-visible text; otherwise OpenClaw starts a new preview and leaves the earlier one visible.
-- `progress` mode keeps tool progress in a visible status draft, retains that draft at completion, and sends the final answer through normal delivery.
+- `progress` mode keeps tool progress in a visible status draft, retains that draft at completion, and sends the final answer through normal delivery. Progress draft previews are not sent as Telegram reply-quote messages; the final reply still uses the normal reply target.
 - If the final edit fails before the completed text is confirmed, OpenClaw uses normal final delivery and retains the stale preview.
 - Preview streaming is skipped when Telegram block streaming is explicitly enabled (to avoid double-streaming).
 - `/reasoning stream` can write reasoning to a retained preview that stays visible after final delivery.

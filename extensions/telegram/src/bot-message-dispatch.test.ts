@@ -1230,6 +1230,11 @@ describe("dispatchTelegramMessage draft streaming", () => {
       telegramCfg: { streaming: { mode: "progress" } },
     });
 
+    expect(createTelegramDraftStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyToMessageId: undefined,
+      }),
+    );
     expect(answerDraftStream.update).toHaveBeenCalledWith(
       expect.stringMatching(workingDraftRegex("🛠️ Exec")),
     );
