@@ -400,9 +400,11 @@ function resolveTelegramReasoningLevel(params: {
   return configDefault;
 }
 
-const MAX_WORKING_DRAFT_ENTRY_CHARS = 1600;
-const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 6;
-const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 1400;
+const MAX_WORKING_DRAFT_ENTRY_CHARS = 220;
+const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 4;
+const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 420;
+const MAX_WORKING_DRAFT_ASSISTANT_LINES = 5;
+const MAX_WORKING_DRAFT_BODY_CHARS = 1200;
 const WORKING_DRAFT_PLACEHOLDER = "Working...";
 
 function sanitizeProgressMarkdownText(text: string): string {
@@ -424,6 +426,13 @@ function clipWorkingDraftLogEntry(text: string): string {
   return `${text.slice(0, MAX_WORKING_DRAFT_ENTRY_CHARS - 3).trimEnd()}...`;
 }
 
+function clipWorkingDraftBody(text: string): string {
+  if (text.length <= MAX_WORKING_DRAFT_BODY_CHARS) {
+    return text;
+  }
+  return `${text.slice(0, MAX_WORKING_DRAFT_BODY_CHARS - 3).trimEnd()}...`;
+}
+
 function clipWorkingDraftAssistantPreview(text: string): string {
   if (text.length <= MAX_WORKING_DRAFT_ASSISTANT_CHARS) {
     return text;
@@ -437,10 +446,15 @@ function compactWorkingDraftAssistantText(text: string): string {
     return "";
   }
   const lines = normalized
+    .replace(/(?:^|\n)\s*assistant draft(?: continued)?:\s*/giu, "\n")
+    .replace(/(?:^|\n)\s*reply started\s*/giu, "\n")
     .split("\n")
-    .map((line) => line.trimEnd())
+    .map((line) => line.replace(/\s+/gu, " ").trim())
     .filter((line, index, all) => line.trim() || all[index - 1]?.trim());
-  return clipWorkingDraftAssistantPreview(lines.join("\n").trim());
+  const compactLines = lines
+    .filter((line) => line.trim())
+    .slice(-MAX_WORKING_DRAFT_ASSISTANT_LINES);
+  return clipWorkingDraftAssistantPreview(compactLines.join("\n").trim());
 }
 
 function resolveHomePath(input: string): string {
@@ -484,6 +498,16 @@ function shortenHomePath(filePath: string): string {
     : filePath;
 }
 
+function shortenWorkingDraftTracePath(filePath: string): string {
+  const normalized = shortenHomePath(filePath);
+  const marker = `${path.sep}logs${path.sep}telegram-working-drafts${path.sep}`;
+  const index = normalized.indexOf(marker);
+  if (index >= 0) {
+    return `logs/telegram-working-drafts/${path.basename(normalized)}`;
+  }
+  return normalized;
+}
+
 function resolveWorkingDraftTracePath(params: {
   cfg: OpenClawConfig;
   agentId: string;
@@ -524,9 +548,11 @@ function formatWorkingDraftCodeBlockText(body: string): string {
 }
 
 function formatWorkingDraftLogText(entries: string[], options?: { tracePath?: string }): string {
-  const traceLine = options?.tracePath ? `Log: ${shortenHomePath(options.tracePath)}` : undefined;
+  const traceLine = options?.tracePath
+    ? `Log: ${shortenWorkingDraftTracePath(options.tracePath)}`
+    : undefined;
   const visibleEntries = entries.length > 0 ? entries : [WORKING_DRAFT_PLACEHOLDER];
-  const body = [traceLine, ...visibleEntries].filter(Boolean).join("\n\n");
+  const body = clipWorkingDraftBody([traceLine, ...visibleEntries].filter(Boolean).join("\n"));
   return formatWorkingDraftCodeBlockText(body);
 }
 
@@ -720,6 +746,7 @@ export const dispatchTelegramMessage = async ({
           replyToMessageId: draftReplyToMessageId,
           minInitialChars: draftMinInitialChars,
           renderText: renderStreamText,
+          allowNonAppendEdit: laneName === "answer" && streamMode === "progress",
           onPreviewMessageSent: (messageId) => {
             recordSentMessage(chatId, messageId, cfg);
           },
@@ -802,6 +829,14 @@ export const dispatchTelegramMessage = async ({
     const normalized = clipWorkingDraftLogEntry(sanitizeWorkingDraftLogText(text));
     if (!normalized) {
       return false;
+    }
+    if (key !== "status") {
+      const placeholderIndex = workingDraftLogEntries.findIndex(
+        (entry) => entry.key === "status" && entry.text === WORKING_DRAFT_PLACEHOLDER,
+      );
+      if (placeholderIndex >= 0) {
+        workingDraftLogEntries.splice(placeholderIndex, 1);
+      }
     }
     const existing = workingDraftLogEntries.find((entry) => entry.key === key);
     if (existing) {

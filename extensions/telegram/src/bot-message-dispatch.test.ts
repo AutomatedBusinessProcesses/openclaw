@@ -299,7 +299,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
   function workingDraftRegex(body: string): RegExp {
     return new RegExp(
-      `^\\\`\\\`\\\`text\\nWORKING DRAFT\\nLog: .*telegram-working-drafts.*\\n\\n${body}\\n\\\`\\\`\\\`$`,
+      `^\\\`\\\`\\\`text\\nWORKING DRAFT\\nLog: .*telegram-working-drafts.*\\n${body}\\n\\\`\\\`\\\`$`,
       "s",
     );
   }
@@ -1394,6 +1394,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(draftStream.update).not.toHaveBeenCalledWith(
       expect.stringContaining("assistant draft continued:"),
     );
+    expect(draftStream.update).not.toHaveBeenCalledWith(expect.stringContaining("reply started"));
     expect(draftStream.discard).toHaveBeenCalledTimes(1);
     expect(draftStream.clear).not.toHaveBeenCalled();
     expect(deliverReplies).toHaveBeenCalledWith(
@@ -1401,6 +1402,62 @@ describe("dispatchTelegramMessage draft streaming", () => {
         replies: [expect.objectContaining({ text: "Final summary." })],
       }),
     );
+  });
+
+  it("keeps Telegram progress working drafts compact and replaceable", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReplyStart?.();
+        await replyOptions?.onPartialReply?.({
+          text: [
+            "assistant draft:",
+            "Here's my honest assessment of each based on company size, stock, and buying department.",
+            "assistant draft continued:",
+            "Strongest leverage: they explicitly say they buy old server parts.",
+            "assistant draft continued:",
+            "This should stay compact instead of one raw token per line.",
+          ].join("\n"),
+        });
+        await replyOptions?.onPartialReply?.({
+          text: [
+            "assistant draft:",
+            "Here's my honest assessment of each based on company size, stock, and buying department.",
+            "assistant draft continued:",
+            "Strongest leverage: they explicitly say they buy old server parts.",
+            "assistant draft continued:",
+            "This should stay compact instead of one raw token per line.",
+            "assistant draft continued:",
+            "Next: rank targets by likelihood and contact path.",
+          ].join("\n"),
+        });
+        await dispatcherOptions.deliver({ text: "Final summary." }, { kind: "final" });
+        return { queuedFinal: true };
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Working" } } },
+    });
+
+    const streamParams = createTelegramDraftStream.mock.calls[0]?.[0] as Parameters<
+      NonNullable<TelegramBotDeps["createTelegramDraftStream"]>
+    >[0];
+    expect(streamParams.allowNonAppendEdit).toBe(true);
+
+    const updates = draftStream.update.mock.calls.map((call) => call[0]);
+    expect(updates.length).toBeGreaterThan(0);
+    for (const update of updates) {
+      expect(update).toMatch(/^```text\nWORKING DRAFT\n/s);
+      expect(update).not.toContain("assistant draft continued:");
+      expect(update).not.toContain("assistant draft:");
+      expect(update).not.toContain("reply started");
+      expect(update.length).toBeLessThan(1400);
+    }
+    expect(draftStream.forceNewMessage).not.toHaveBeenCalled();
   });
 
   it("renders Telegram progress drafts before slow status reactions resolve", async () => {
@@ -1458,7 +1515,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringMatching(workingDraftRegex("🔎 Web Search: docs lookup\\n\\ntests passed")),
+      expect.stringMatching(workingDraftRegex("🔎 Web Search: docs lookup\\ntests passed")),
     );
     expect(draftStream.forceNewMessage).not.toHaveBeenCalled();
     expect(draftStream.materialize).not.toHaveBeenCalled();

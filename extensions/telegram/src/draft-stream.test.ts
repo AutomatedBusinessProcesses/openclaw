@@ -110,6 +110,30 @@ describe("createTelegramDraftStream", () => {
     expect(stream.messageId()).toBe(42);
   });
 
+  it("can replace non-append status panels in place when explicitly allowed", async () => {
+    const api = createMockDraftApi();
+    const onSupersededPreview = vi.fn();
+    const stream = createDraftStream(api, {
+      allowNonAppendEdit: true,
+      onSupersededPreview,
+    });
+
+    stream.update("WORKING DRAFT\nTool: reading notes\nDraft: first pass");
+    await stream.flush();
+
+    stream.update("WORKING DRAFT\nTool: checking seller\nInsight: likely best value");
+    await stream.flush();
+
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+    expect(api.editMessageText).toHaveBeenCalledWith(
+      123,
+      17,
+      "WORKING DRAFT\nTool: checking seller\nInsight: likely best value",
+    );
+    expect(onSupersededPreview).not.toHaveBeenCalled();
+    expect(stream.messageId()).toBe(17);
+  });
+
   it("waits for in-flight updates before final flush edit", async () => {
     let resolveSend: ((value: { message_id: number }) => void) | undefined;
     const firstSend = new Promise<{ message_id: number }>((resolve) => {

@@ -102,6 +102,12 @@ export function createTelegramDraftStream(params: {
   minInitialChars?: number;
   /** Optional preview renderer (e.g. markdown -> HTML + parse mode). */
   renderText?: (text: string) => TelegramDraftPreview;
+  /**
+   * Allow an existing preview message to be replaced in place when the next
+   * preview is not append-only. Use this only for compact status panels whose
+   * full detail is preserved elsewhere.
+   */
+  allowNonAppendEdit?: boolean;
   /** Called after Telegram accepts a preview sendMessage. */
   onPreviewMessageSent?: (messageId: number) => void;
   /** Called when a late send resolves after forceNewMessage() switched generations. */
@@ -241,6 +247,7 @@ export function createTelegramDraftStream(params: {
       return false;
     }
     if (
+      !params.allowNonAppendEdit &&
       typeof streamMessageId === "number" &&
       deliveredTextOffset > 0 &&
       lastDeliveredText.length > 0 &&
@@ -265,6 +272,7 @@ export function createTelegramDraftStream(params: {
         ? lastDeliveredText.slice(deliveredTextOffset).trimStart()
         : "";
     if (
+      !params.allowNonAppendEdit &&
       typeof streamMessageId === "number" &&
       previousCurrentText &&
       !isAppendOnlyDraftUpdate(previousCurrentText, currentText)
