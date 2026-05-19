@@ -1,15 +1,18 @@
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
-import { normalizeAgentId } from "openclaw/plugin-sdk/routing";
 import { resolveRequiredHomeDir, resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import type { TelegramMessageContext } from "./bot-message-context.js";
 import type { TelegramMediaRef } from "./bot-message-context.types.js";
 
 const LOG_ROOT = path.join("logs", "telegram-prompts");
+const DEFAULT_SHARED_RESEARCH_WORKSPACE = "/Users/aj/Shared Research/OpenClaw";
 
 type AgentEntry = NonNullable<NonNullable<OpenClawConfig["agents"]>["list"]>[number];
+const DEFAULT_AGENT_ID = "main";
+const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
 export type TelegramPromptLogResult = {
   markdownPath: string;
@@ -26,6 +29,20 @@ export type AppendTelegramPromptLogParams = {
 
 function stripNullBytes(value: string): string {
   return value.replaceAll("\0", "");
+}
+
+function normalizeAgentId(value: string | undefined | null): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return DEFAULT_AGENT_ID;
+  }
+  const normalized = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return VALID_AGENT_ID_RE.test(trimmed)
+    ? trimmed.toLowerCase()
+    : normalized.slice(0, 64) || DEFAULT_AGENT_ID;
 }
 
 function resolveUserPath(input: string, env: NodeJS.ProcessEnv): string {
@@ -57,6 +74,10 @@ function resolveAgentWorkspaceDir(
   agentId: string,
   env: NodeJS.ProcessEnv,
 ): string {
+  const sharedWorkspace = resolveSharedResearchWorkspace(env);
+  if (sharedWorkspace) {
+    return sharedWorkspace;
+  }
   const id = normalizeAgentId(agentId);
   const configured = listAgentEntries(cfg).find(
     (entry) => normalizeAgentId(entry.id) === id,
@@ -80,6 +101,21 @@ function resolveAgentWorkspaceDir(
     return path.join(resolveUserPath(fallback, env), id);
   }
   return path.join(resolveStateDir(env, os.homedir), `workspace-${id}`);
+}
+
+function resolveSharedResearchWorkspace(env: NodeJS.ProcessEnv): string | undefined {
+  const explicitWorkspace = env.OPENCLAW_SHARED_RESEARCH_WORKSPACE?.trim();
+  if (explicitWorkspace) {
+    return explicitWorkspace;
+  }
+  const sharedRoot = env.OPENCLAW_SHARED_RESEARCH_DIR?.trim();
+  if (sharedRoot) {
+    return path.join(sharedRoot, "OpenClaw");
+  }
+  if (env.VITEST !== "true" && existsSync(DEFAULT_SHARED_RESEARCH_WORKSPACE)) {
+    return DEFAULT_SHARED_RESEARCH_WORKSPACE;
+  }
+  return undefined;
 }
 
 function formatDateOnly(date: Date): string {

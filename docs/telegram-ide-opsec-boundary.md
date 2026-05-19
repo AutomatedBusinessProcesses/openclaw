@@ -45,12 +45,30 @@ The IDE bridge must be staged and explicit:
 
 OpenClaw must not discover arbitrary AJ files to satisfy `/IDE`.
 
+On AJ's Mac the only intentional bridge is:
+
+```text
+/Users/aj/Shared Research/OpenClaw/
+```
+
+Bridge requests go in:
+
+```text
+/Users/aj/Shared Research/OpenClaw/IDE Bridge/inbox/
+```
+
+Bridge responses go in:
+
+```text
+/Users/aj/Shared Research/OpenClaw/IDE Bridge/outbox/
+```
+
 ## Recommended Filesystem Layout
 
 Keep the normal AJ account private:
 
 - `Desktop`, `Documents`, `Downloads`, `Library`, secrets, browser profiles, and normal private project folders: `700`.
-- Dedicated research/staging folder: `750` with a specific ACL for `ABPclaw`, or `755` only when machine-wide local read access is intentional.
+- Dedicated research/staging folder: mode `700` owned by AJ with a specific ACL for `ABPclaw`, or `750` with a narrow group if one is created later. Avoid `755` unless machine-wide local read access is intentional.
 - No symlinks from the staged folder into private folders.
 - No raw secrets, recovery phrases, login cookies, browser profiles, or unredacted `.env` files in the staged folder unless explicitly staged for that exact task.
 

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -183,6 +184,8 @@ const TELEGRAM_UNSANDBOXED_LOCAL_TOOL_DENYLIST = [
   "subagents",
 ];
 
+const DEFAULT_SHARED_RESEARCH_WORKSPACE = "/Users/aj/Shared Research/OpenClaw";
+
 function mergeToolDenylist(existing: string[] | undefined, additions: string[]): string[] {
   return Array.from(new Set([...(existing ?? []), ...additions]));
 }
@@ -194,7 +197,53 @@ function resolveAgentSandboxMode(cfg: OpenClawConfig, agentId: string) {
   );
 }
 
+function resolveTelegramSharedResearchWorkspace(): string | undefined {
+  const explicitWorkspace = process.env.OPENCLAW_SHARED_RESEARCH_WORKSPACE?.trim();
+  if (explicitWorkspace) {
+    return explicitWorkspace;
+  }
+  const sharedRoot = process.env.OPENCLAW_SHARED_RESEARCH_DIR?.trim();
+  if (sharedRoot) {
+    return path.join(sharedRoot, "OpenClaw");
+  }
+  if (process.env.VITEST !== "true" && existsSync(DEFAULT_SHARED_RESEARCH_WORKSPACE)) {
+    return DEFAULT_SHARED_RESEARCH_WORKSPACE;
+  }
+  return undefined;
+}
+
+function withTelegramSharedResearchWorkspace(cfg: OpenClawConfig, agentId: string): OpenClawConfig {
+  const workspace = resolveTelegramSharedResearchWorkspace();
+  if (!workspace) {
+    return cfg;
+  }
+  const agents = cfg.agents ?? {};
+  const defaults = agents.defaults ?? {};
+  const list = Array.isArray(agents.list) ? agents.list : [];
+  const agentIndex = list.findIndex((agent) => agent.id === agentId);
+  if (defaults.workspace === workspace && list[agentIndex]?.workspace === workspace) {
+    return cfg;
+  }
+  const nextList =
+    agentIndex >= 0
+      ? list.map((agent, index) => (index === agentIndex ? { ...agent, workspace } : agent))
+      : [...list, { id: agentId, workspace }];
+
+  return {
+    ...cfg,
+    agents: {
+      ...agents,
+      defaults: {
+        ...defaults,
+        workspace,
+      },
+      list: nextList,
+    },
+  };
+}
+
 function withTelegramLocalAccessBoundary(cfg: OpenClawConfig, agentId: string): OpenClawConfig {
+  cfg = withTelegramSharedResearchWorkspace(cfg, agentId);
   const tools = cfg.tools ?? {};
   const fsTools = tools.fs ?? {};
   const denyLocalExecution = resolveAgentSandboxMode(cfg, agentId) !== "all";

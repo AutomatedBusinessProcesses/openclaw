@@ -79,6 +79,30 @@ describe("telegram prompt log", () => {
     expect(parsed.mediaTypes).toEqual(["image/png"]);
   });
 
+  it("prefers the configured shared research workspace for prompt logs", async () => {
+    const regularWorkspace = await makeTempDir();
+    const sharedWorkspace = await makeTempDir();
+    const cfg = {
+      agents: { list: [{ id: "main", workspace: regularWorkspace }] },
+    } satisfies OpenClawConfig;
+
+    const result = await appendTelegramPromptLog({
+      cfg,
+      context: createContext(),
+      env: {
+        ...process.env,
+        OPENCLAW_SHARED_RESEARCH_WORKSPACE: sharedWorkspace,
+      },
+    });
+
+    expect(result?.markdownPath).toBe(
+      path.join(sharedWorkspace, "logs", "telegram-prompts", "2026-05-18.md"),
+    );
+    await expect(
+      fs.access(path.join(regularWorkspace, "logs", "telegram-prompts", "2026-05-18.md")),
+    ).rejects.toThrow();
+  });
+
   it("does not log messages sent by bots", async () => {
     const workspace = await makeTempDir();
     const cfg = {

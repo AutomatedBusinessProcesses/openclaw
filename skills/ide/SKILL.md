@@ -11,7 +11,8 @@ Use this skill to ask the IDE/Codex side for bounded help. This is a bridge requ
 
 - Never search `/Users/aj`, another user's home directory, browser profiles, downloads, documents, desktop, keychains, mail stores, `.env` files, recovery phrases, or private app data to satisfy `/IDE`.
 - Never use host shell, process tools, coding-agent delegation, subagents, or session tools to discover files outside the OpenClaw workspace for this skill.
-- Only read files that are inside the OpenClaw workspace or inside an explicitly staged shared research folder named by the user or by a bridge manifest.
+- Only read files that are inside the OpenClaw workspace or inside the staged shared research bridge:
+  `/Users/aj/Shared Research/OpenClaw/`
 - Do not follow symlinks or `..` paths out of a staged folder.
 - If the needed context is not already staged, create a request for the IDE and stop. Do not improvise by hunting for it.
 
@@ -19,15 +20,17 @@ Use this skill to ask the IDE/Codex side for bounded help. This is a bridge requ
 
 1. Convert the user's request into a concise IDE work order.
 2. Write the work order to the OpenClaw workspace bridge inbox if file tools are available:
-   `~/.openclaw/workspace/ide-bridge/inbox/<timestamp>-<slug>.md`
+   `/Users/aj/Shared Research/OpenClaw/IDE Bridge/inbox/<timestamp>-<slug>.md`
 3. Tell the user the request is queued and list exactly what context is needed.
 4. Wait for a matching IDE response or staged artifact in:
-   `~/.openclaw/workspace/ide-bridge/outbox/`
+   `/Users/aj/Shared Research/OpenClaw/IDE Bridge/outbox/`
 5. Use only that response or explicitly staged files to correct/fact-check the Telegram answer.
 
 ## Shared Research Folder
 
-The preferred no-friction context path is a dedicated staged folder, not broad home-directory access.
+The no-friction context path is the dedicated staged folder, not broad home-directory access:
+
+`/Users/aj/Shared Research/OpenClaw/`
 
 - Keep private folders such as `Desktop`, `Documents`, `Downloads`, `Library`, secrets, and normal project trees at `700` unless intentionally shared.
 - Put only approved context in a research/staging folder.

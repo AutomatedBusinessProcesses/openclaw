@@ -35,6 +35,20 @@ function parseArgs(argv) {
 }
 
 function defaultLogPath() {
+  const sharedWorkspace =
+    process.env.OPENCLAW_SHARED_RESEARCH_WORKSPACE || process.env.SHARED_RESEARCH_WORKSPACE;
+  if (sharedWorkspace) {
+    return path.join(sharedWorkspace, "Shopper", "shopper-log.md");
+  }
+  const sharedResearchDir =
+    process.env.OPENCLAW_SHARED_RESEARCH_DIR || process.env.SHARED_RESEARCH_DIR;
+  if (sharedResearchDir) {
+    return path.join(sharedResearchDir, "OpenClaw", "Shopper", "shopper-log.md");
+  }
+  const ajSharedResearchDir = "/Users/aj/Shared Research";
+  if (fs.existsSync(ajSharedResearchDir)) {
+    return path.join(ajSharedResearchDir, "OpenClaw", "Shopper", "shopper-log.md");
+  }
   const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), ".openclaw");
   return path.join(stateDir, "workspace", "skills", "shopper", "shopper-log.md");
 }

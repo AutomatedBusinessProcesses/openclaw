@@ -23,13 +23,24 @@ node {baseDir}/log-shopper-event.mjs start --goal "<user goal>"
 The helper appends to:
 
 ```text
-$OPENCLAW_STATE_DIR/workspace/skills/shopper/shopper-log.md
+/Users/aj/Shared Research/OpenClaw/Shopper/shopper-log.md
 ```
 
-or, if `OPENCLAW_STATE_DIR` is not set:
+or, when configured on a different machine:
 
 ```text
-$HOME/.openclaw/workspace/skills/shopper/shopper-log.md
+$OPENCLAW_SHARED_RESEARCH_WORKSPACE/Shopper/shopper-log.md
+$OPENCLAW_SHARED_RESEARCH_DIR/OpenClaw/Shopper/shopper-log.md
+```
+
+If neither shared-research path exists, the helper falls back to the legacy workspace log under
+`$OPENCLAW_STATE_DIR/workspace/skills/shopper/shopper-log.md`.
+
+All durable shopper artifacts for this machine belong in `/Users/aj/Shared Research/OpenClaw/`.
+For computer-parts work, write project files under:
+
+```text
+/Users/aj/Shared Research/OpenClaw/Computer Parts/
 ```
 
 At minimum, record:
@@ -42,6 +53,7 @@ At minimum, record:
 - the final recommendation, with the winning link(s) and remaining uncertainty
 
 Do not put secret values in the log. If an env var, cookie, account, token, password, recovery phrase, or API key matters, log the variable or file name only, not its value.
+Do not search AJ's private home folders for shopper context. If context is needed, use only the active OpenClaw workspace or files staged in Shared Research.
 
 ## Logging Commands
 
@@ -50,7 +62,7 @@ Use these commands as the run progresses:
 ```bash
 node {baseDir}/log-shopper-event.mjs search --query "best compact laser printer duplex scanner" --notes "Initial broad scan"
 node {baseDir}/log-shopper-event.mjs source --url "https://example.com/item" --title "Example item" --price "$199" --seller "Example" --notes "Good warranty; slow shipping"
-node {baseDir}/log-shopper-event.mjs env-link --path "$HOME/.openclaw/workspace/skills/shopper/shopper-log.md" --notes "Prior shopper log checked"
+node {baseDir}/log-shopper-event.mjs env-link --path "/Users/aj/Shared Research/OpenClaw/Shopper/shopper-log.md" --notes "Prior shopper log checked"
 node {baseDir}/log-shopper-event.mjs decision --title "Shortlist" --notes "Rejected Item A because returns are poor; Item B remains best"
 node {baseDir}/log-shopper-event.mjs final --title "Recommendation" --url "https://example.com/buy" --price "$199" --notes "Best fit for constraints"
 ```

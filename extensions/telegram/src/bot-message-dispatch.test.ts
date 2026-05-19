@@ -478,6 +478,48 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
   });
 
+  it("uses the shared research workspace for Telegram-originated turns when configured", async () => {
+    const context = createContext({ route: { agentId: "ops" } as TelegramMessageContext["route"] });
+    const originalSharedWorkspace = process.env.OPENCLAW_SHARED_RESEARCH_WORKSPACE;
+    process.env.OPENCLAW_SHARED_RESEARCH_WORKSPACE = "/tmp/shared-research/OpenClaw";
+    try {
+      await dispatchWithContext({
+        context,
+        cfg: {
+          agents: { list: [{ id: "ops", workspace: "/tmp/private-workspace" }] },
+          tools: { fs: { workspaceOnly: false } },
+        },
+      });
+    } finally {
+      if (originalSharedWorkspace === undefined) {
+        delete process.env.OPENCLAW_SHARED_RESEARCH_WORKSPACE;
+      } else {
+        process.env.OPENCLAW_SHARED_RESEARCH_WORKSPACE = originalSharedWorkspace;
+      }
+    }
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cfg: expect.objectContaining({
+          agents: expect.objectContaining({
+            defaults: expect.objectContaining({
+              workspace: "/tmp/shared-research/OpenClaw",
+            }),
+            list: expect.arrayContaining([
+              expect.objectContaining({
+                id: "ops",
+                workspace: "/tmp/shared-research/OpenClaw",
+              }),
+            ]),
+          }),
+          tools: expect.objectContaining({
+            fs: expect.objectContaining({ workspaceOnly: true }),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("allows local execution tools for fully sandboxed Telegram agents", async () => {
     const context = createContext({ route: { agentId: "ops" } as TelegramMessageContext["route"] });
 
