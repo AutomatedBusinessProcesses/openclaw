@@ -58,6 +58,11 @@ export type TelegramNetworkConfig = {
   dangerouslyAllowPrivateNetwork?: boolean;
 };
 
+export type TelegramEventQueueConfig = {
+  /** Max concurrent Telegram update handlers. Defaults to agents.defaults.maxConcurrent. */
+  maxConcurrency?: number;
+};
+
 export type TelegramInlineButtonsScope = "off" | "dm" | "group" | "all" | "allowlist";
 export type TelegramStreamingMode = "off" | "partial" | "block" | "progress";
 export type TelegramExecApprovalTarget = "dm" | "channel" | "both";
@@ -156,6 +161,11 @@ export type TelegramAccountConfig = {
   mediaGroupFlushMs?: number;
   /** Telegram polling watchdog threshold in milliseconds. Default: 120000. */
   pollingStallThresholdMs?: number;
+  /**
+   * Telegram update queue configuration. This controls inbound Telegram update
+   * handler concurrency before agent session/global lanes apply their own caps.
+   */
+  eventQueue?: TelegramEventQueueConfig;
   /** Retry policy for outbound Telegram API calls. */
   retry?: OutboundRetryConfig;
   /** Network transport overrides for Telegram. */

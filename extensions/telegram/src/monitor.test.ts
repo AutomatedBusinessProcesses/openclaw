@@ -458,6 +458,23 @@ describe("monitorTelegramProvider (grammY)", () => {
     );
   });
 
+  it("uses Telegram eventQueue maxConcurrency for runner concurrency", async () => {
+    runSpy.mockClear();
+    getRuntimeConfigMock.mockReturnValue({
+      agents: { defaults: { maxConcurrent: 3 } },
+      channels: { telegram: { eventQueue: { maxConcurrency: 12 } } },
+    });
+
+    await monitorWithAutoAbort();
+
+    expect(runSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        sink: { concurrency: 12 },
+      }),
+    );
+  });
+
   it("requires mention in groups by default", async () => {
     for (const v of Object.values(api)) {
       if (typeof v === "function" && "mockReset" in v) {

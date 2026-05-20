@@ -25,10 +25,31 @@ import { makeProxyFetch } from "./proxy.js";
 
 export type { MonitorTelegramOpts } from "./monitor.types.js";
 
-export function createTelegramRunnerOptions(cfg: OpenClawConfig): RunOptions<unknown> {
+type TelegramRunnerConcurrencyConfig = {
+  eventQueue?: {
+    maxConcurrency?: number;
+  };
+};
+
+function resolveTelegramRunnerConcurrency(
+  cfg: OpenClawConfig,
+  accountConfig?: TelegramRunnerConcurrencyConfig,
+): number {
+  const configured =
+    accountConfig?.eventQueue?.maxConcurrency ?? cfg.channels?.telegram?.eventQueue?.maxConcurrency;
+  if (typeof configured === "number" && Number.isFinite(configured) && configured > 0) {
+    return Math.max(1, Math.floor(configured));
+  }
+  return resolveAgentMaxConcurrent(cfg);
+}
+
+export function createTelegramRunnerOptions(
+  cfg: OpenClawConfig,
+  accountConfig?: TelegramRunnerConcurrencyConfig,
+): RunOptions<unknown> {
   return {
     sink: {
-      concurrency: resolveAgentMaxConcurrent(cfg),
+      concurrency: resolveTelegramRunnerConcurrency(cfg, accountConfig),
     },
     runner: {
       fetch: {
@@ -250,7 +271,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         proxyFetch,
         botInfo: opts.botInfo,
         abortSignal: opts.abortSignal,
-        runnerOptions: createTelegramRunnerOptions(cfg),
+        runnerOptions: createTelegramRunnerOptions(cfg, account.config),
         getLastUpdateId: () => lastUpdateId,
         persistUpdateId,
         log,
