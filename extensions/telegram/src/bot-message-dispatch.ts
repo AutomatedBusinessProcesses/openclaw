@@ -1620,19 +1620,25 @@ export const dispatchTelegramMessage = async ({
       text: string,
     ): Promise<LaneDeliveryResult> => {
       let retainedPreview = false;
-      if (answerLane.hasStreamedMessage || typeof answerLane.stream?.messageId() === "number") {
+      const hasVisiblePreview =
+        answerLane.hasStreamedMessage || typeof answerLane.stream?.messageId() === "number";
+      if (!hasVisiblePreview) {
+        await answerLane.stream?.clear();
+      }
+      const delivered = await sendPayload(applyTextToPayload(payload, text), { durable: true });
+      if (!delivered) {
+        return { kind: "skipped" };
+      }
+      if (hasVisiblePreview) {
         await (typeof answerLane.stream?.discard === "function"
           ? answerLane.stream.discard()
           : answerLane.stream?.stop());
         retainedPreview = true;
-      } else {
-        await answerLane.stream?.clear();
       }
       resetDraftLaneState(answerLane);
       answerLane.retained = retainedPreview;
-      const delivered = await sendPayload(applyTextToPayload(payload, text), { durable: true });
       answerLane.finalized = true;
-      return delivered ? { kind: "sent" } : { kind: "skipped" };
+      return { kind: "sent" };
     };
 
     if (isDmTopic) {

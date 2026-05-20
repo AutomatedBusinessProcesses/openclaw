@@ -1252,6 +1252,37 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(editMessageTelegram).not.toHaveBeenCalled();
   });
 
+  it("marks the progress draft stopped when final delivery is skipped", async () => {
+    const { answerDraftStream } = setupDraftStreams({ answerMessageId: 2001 });
+    deliverReplies.mockResolvedValue({ delivered: false });
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReplyStart?.();
+        await dispatcherOptions.deliver({ text: "Branch is up to date" }, { kind: "final" });
+        return { queuedFinal: true };
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress" } },
+    });
+
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [expect.objectContaining({ text: "Branch is up to date" })],
+      }),
+    );
+    expect(answerDraftStream.update).toHaveBeenCalledWith(
+      expect.stringMatching(
+        workingDraftRegex("Status: stopped without final reply \\([0-9]+s\\); check log and retry"),
+      ),
+    );
+    expect(answerDraftStream.flush).toHaveBeenCalled();
+    expect(answerDraftStream.discard).toHaveBeenCalledTimes(1);
+  });
+
   it("wraps partial-mode tool progress previews in working draft code blocks", async () => {
     const { answerDraftStream } = setupDraftStreams({ answerMessageId: 2001 });
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
