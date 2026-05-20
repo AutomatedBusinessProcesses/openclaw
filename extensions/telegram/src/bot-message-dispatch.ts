@@ -401,9 +401,9 @@ function resolveTelegramReasoningLevel(params: {
 }
 
 const MAX_WORKING_DRAFT_ENTRY_CHARS = 180;
-const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 3;
-const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 320;
-const MAX_WORKING_DRAFT_ASSISTANT_LINES = 4;
+const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 6;
+const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 520;
+const MAX_WORKING_DRAFT_ASSISTANT_LINES = 6;
 const MAX_WORKING_DRAFT_BODY_CHARS = 850;
 const MIN_WORKING_DRAFT_BODY_CHARS = 240;
 const WORKING_DRAFT_STREAM_OVERHEAD_CHARS = 96;
@@ -453,24 +453,66 @@ function clipWorkingDraftAssistantPreview(text: string): string {
   if (text.length <= MAX_WORKING_DRAFT_ASSISTANT_CHARS) {
     return text;
   }
-  return `...${text.slice(text.length - MAX_WORKING_DRAFT_ASSISTANT_CHARS + 3).trimStart()}`;
+  return `${text.slice(0, MAX_WORKING_DRAFT_ASSISTANT_CHARS - 3).trimEnd()}...`;
 }
 
-function compactWorkingDraftAssistantText(text: string): string {
+function normalizeWorkingDraftAssistantLines(text: string): string[] {
   const normalized = sanitizeWorkingDraftLogText(text);
   if (!normalized) {
-    return "";
+    return [];
   }
-  const lines = normalized
+  return normalized
     .replace(/(?:^|\n)\s*assistant draft(?: continued)?:\s*/giu, "\n")
     .replace(/(?:^|\n)\s*reply started\s*/giu, "\n")
+    .replace(/(?:^|\n)\s*WORKING DRAFT\s*/giu, "\n")
     .split("\n")
     .map((line) => line.replace(/\s+/gu, " ").trim())
-    .filter((line, index, all) => line.trim() || all[index - 1]?.trim());
-  const compactLines = lines
     .filter((line) => line.trim())
-    .slice(-MAX_WORKING_DRAFT_ASSISTANT_LINES);
+    .filter((line) => !/^```(?:\w+)?$/u.test(line));
+}
+
+function mergeWorkingDraftAssistantLines(existing: string[], incoming: string[]): string[] {
+  const merged = [...existing];
+  for (const line of incoming) {
+    const duplicateIndex = merged.findIndex((entry) => entry === line);
+    if (duplicateIndex >= 0) {
+      continue;
+    }
+    const prefixIndex = merged.findIndex(
+      (entry) => line.startsWith(entry) || entry.startsWith(line),
+    );
+    if (prefixIndex >= 0) {
+      if (line.length > merged[prefixIndex].length) {
+        merged[prefixIndex] = line;
+      }
+      continue;
+    }
+    merged.push(line);
+  }
+  return merged;
+}
+
+function compactWorkingDraftAssistantLines(lines: string[]): string {
+  if (lines.length === 0) {
+    return "";
+  }
+  const compactLines =
+    lines.length <= MAX_WORKING_DRAFT_ASSISTANT_LINES
+      ? lines
+      : [...lines.slice(0, 2), "...", ...lines.slice(-(MAX_WORKING_DRAFT_ASSISTANT_LINES - 3))];
   return clipWorkingDraftAssistantPreview(compactLines.join("\n").trim());
+}
+
+function isWorkingDraftPayloadText(text: string | undefined): boolean {
+  const trimmed = text?.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const unfenced = trimmed
+    .replace(/^```[A-Za-z0-9_-]*\n/u, "")
+    .replace(/\n```$/u, "")
+    .trim();
+  return /^WORKING DRAFT\b/iu.test(unfenced);
 }
 
 function resolveHomePath(input: string): string {
@@ -803,6 +845,10 @@ export const dispatchTelegramMessage = async ({
   let streamToolProgressLines: string[] = [];
   type WorkingDraftVisibleEntry = { key: string; text: string };
   const workingDraftLogEntries: WorkingDraftVisibleEntry[] = [];
+  const workingDraftAssistantLinesByLane: Record<LaneName, string[]> = {
+    answer: [],
+    reasoning: [],
+  };
   let workingDraftEntrySequence = 0;
   let lastWorkingDraftAnswerText = "";
   let lastWorkingDraftReasoningText = "";
@@ -886,7 +932,20 @@ export const dispatchTelegramMessage = async ({
     laneName: LaneName;
     text: string;
   }): boolean => {
-    const preview = compactWorkingDraftAssistantText(params.text);
+    const incoming = normalizeWorkingDraftAssistantLines(params.text);
+    if (incoming.length === 0) {
+      return false;
+    }
+    const previous = workingDraftAssistantLinesByLane[params.laneName];
+    const merged = mergeWorkingDraftAssistantLines(previous, incoming);
+    if (
+      merged.length === previous.length &&
+      merged.every((line, index) => line === previous[index])
+    ) {
+      return false;
+    }
+    workingDraftAssistantLinesByLane[params.laneName] = merged;
+    const preview = compactWorkingDraftAssistantLines(merged);
     if (!preview) {
       return false;
     }
@@ -1591,15 +1650,33 @@ export const dispatchTelegramMessage = async ({
                       const result =
                         streamMode === "progress" &&
                         segment.lane === "answer" &&
-                        info.kind === "final"
-                          ? await deliverProgressModeFinalAnswer(payload, segment.text)
-                          : await deliverLaneText({
-                              laneName: segment.lane,
-                              text: segment.text,
-                              payload,
-                              infoKind: info.kind,
-                              buttons: telegramButtons,
-                            });
+                        info.kind === "final" &&
+                        isWorkingDraftPayloadText(segment.text)
+                          ? await (async (): Promise<LaneDeliveryResult> => {
+                              await enqueueDraftLaneEvent(async () => {
+                                if (
+                                  appendWorkingDraftTextDelta({
+                                    laneName: "answer",
+                                    label: "assistant draft",
+                                    text: segment.text,
+                                  })
+                                ) {
+                                  await renderProgressDraft({ flush: true });
+                                }
+                              });
+                              return { kind: "preview-updated" };
+                            })()
+                          : streamMode === "progress" &&
+                              segment.lane === "answer" &&
+                              info.kind === "final"
+                            ? await deliverProgressModeFinalAnswer(payload, segment.text)
+                            : await deliverLaneText({
+                                laneName: segment.lane,
+                                text: segment.text,
+                                payload,
+                                infoKind: info.kind,
+                                buttons: telegramButtons,
+                              });
                       if (info.kind === "final") {
                         emitPreviewFinalizedHook(result);
                       }

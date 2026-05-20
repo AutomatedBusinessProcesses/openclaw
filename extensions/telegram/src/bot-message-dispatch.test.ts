@@ -1409,7 +1409,78 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
   });
 
-  it("keeps Telegram progress working drafts compact and replaceable", async () => {
+  it("keeps non-cumulative assistant draft snapshots in the progress working draft", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReplyStart?.();
+        await replyOptions?.onPartialReply?.({
+          text: "WORKING DRAFT\n- Read EMAIL_LOG.md\n- Found 15 email entries",
+        });
+        await replyOptions?.onPartialReply?.({
+          text: "WORKING DRAFT\n- Read GPU_DEALS.md\n- Found Tesla K80 pricing",
+        });
+        await dispatcherOptions.deliver({ text: "Final summary." }, { kind: "final" });
+        return { queuedFinal: true };
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Working" } } },
+    });
+
+    const lastUpdate = draftStream.update.mock.calls.at(-1)?.[0] ?? "";
+    expect(lastUpdate).toContain("- Read EMAIL_LOG.md");
+    expect(lastUpdate).toContain("- Found 15 email entries");
+    expect(lastUpdate).toContain("- Read GPU_DEALS.md");
+    expect(lastUpdate).toContain("- Found Tesla K80 pricing");
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [expect.objectContaining({ text: "Final summary." })],
+      }),
+    );
+  });
+
+  it("folds model-emitted working draft final payloads into the progress draft", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions, replyOptions }) => {
+        await replyOptions?.onReplyStart?.();
+        await dispatcherOptions.deliver(
+          {
+            text: "WORKING DRAFT\n- Read EMAIL_LOG.md\n- Checked HEARTBEAT.md",
+            replyToId: "456",
+          },
+          { kind: "final" },
+        );
+        await dispatcherOptions.deliver(
+          { text: "Final summary.\nEND", replyToId: "456" },
+          { kind: "final" },
+        );
+        return { queuedFinal: true };
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Working" } } },
+    });
+
+    expect(draftStream.update).toHaveBeenCalledWith(expect.stringContaining("- Read EMAIL_LOG.md"));
+    const sentTexts = deliverReplies.mock.calls.flatMap((call: unknown[]) =>
+      ((call[0] as { replies?: Array<{ text?: string }> }).replies ?? []).map(
+        (reply) => reply.text ?? "",
+      ),
+    );
+    expect(sentTexts).toEqual(["Final summary.\nEND"]);
+  });
+
+  it("keeps Telegram progress working drafts compact without raw labels", async () => {
     const draftStream = createSequencedDraftStream(2001);
     createTelegramDraftStream.mockReturnValue(draftStream);
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(

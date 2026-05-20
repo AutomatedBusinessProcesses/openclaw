@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Telegram/streaming: retain accumulated working-draft details across progress preview edits and fold model-emitted `WORKING DRAFT` payloads back into the live draft panel instead of sending extra quote-reply cards.
 - Telegram/streaming: keep progress working-draft previews out of Telegram reply quotes so each draft bubble stays compact while final replies still preserve normal reply targeting.
 - Telegram/streaming: render preserved tool/progress updates as copyable `WORKING DRAFT` code blocks in both partial and progress preview modes, and apply the same formatting to Telegram tool-summary deliveries while leaving finals and approval prompts untouched.
 - Skills/audio: replace the local voice policy skill with `/transcribe`, a local-only transcript skill that preserves the current message transcript when skill commands rewrite the request.
