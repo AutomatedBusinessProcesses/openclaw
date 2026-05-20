@@ -1392,7 +1392,6 @@ export const dispatchTelegramMessage = async ({
       isDispatchSuperseded() ||
       answerLane.finalized ||
       answerLane.retained ||
-      suppressSilentReplyFallback ||
       deliveryState.snapshot().delivered
     ) {
       return;
@@ -1414,7 +1413,9 @@ export const dispatchTelegramMessage = async ({
     const elapsed = formatWorkingDraftElapsed(Date.now() - workingDraftStartedAtMs);
     const terminalStatus =
       dispatchError == null
-        ? `Status: stopped without final reply (${elapsed}); check log and retry`
+        ? suppressSilentReplyFallback
+          ? `Status: finished without visible reply (${elapsed}); message tool did not send`
+          : `Status: stopped without final reply (${elapsed}); check log and retry`
         : `Status: failed before final reply (${elapsed}); check log and retry`;
     if (upsertWorkingDraftStatus(terminalStatus)) {
       await renderProgressDraft({ flush: true });
@@ -2095,6 +2096,7 @@ export const dispatchTelegramMessage = async ({
       } else {
         await finishProgressDraftWithoutFinal();
       }
+      await workingDraftTraceQueue;
       progressDraftGate.cancel();
       const lanesToCleanup: Array<{ laneName: LaneName; lane: DraftLaneState }> = [
         { laneName: "answer", lane: answerLane },

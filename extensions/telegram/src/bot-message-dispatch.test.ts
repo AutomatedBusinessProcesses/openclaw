@@ -1405,6 +1405,40 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(deliverReplies).not.toHaveBeenCalled();
   });
 
+  it("terminalizes progress drafts when message-tool-only turns send no visible reply", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
+      await replyOptions?.onReplyStart?.();
+      return {
+        queuedFinal: false,
+        counts: { block: 0, final: 0, tool: 0 },
+        sourceReplyDeliveryMode: "message_tool_only",
+      };
+    });
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
+    });
+
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringMatching(workingDraftRegex("Status: starting turn")),
+    );
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringMatching(
+        workingDraftRegex(
+          "Status: finished without visible reply \\([0-9]+s\\); message tool did not send",
+        ),
+      ),
+    );
+    expect(draftStream.flush).toHaveBeenCalled();
+    expect(draftStream.discard).toHaveBeenCalledTimes(1);
+    expect(draftStream.clear).not.toHaveBeenCalled();
+    expect(deliverReplies).not.toHaveBeenCalled();
+  });
+
   it("does not present raw assistant answer deltas as progress thoughts", async () => {
     const draftStream = createSequencedDraftStream(2001);
     createTelegramDraftStream.mockReturnValue(draftStream);
