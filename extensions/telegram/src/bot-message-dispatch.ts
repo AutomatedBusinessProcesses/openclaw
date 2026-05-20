@@ -401,13 +401,14 @@ function resolveTelegramReasoningLevel(params: {
 }
 
 const MAX_WORKING_DRAFT_ENTRY_CHARS = 180;
-const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 6;
-const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 520;
-const MAX_WORKING_DRAFT_ASSISTANT_LINES = 6;
-const MAX_WORKING_DRAFT_BODY_CHARS = 850;
+const MAX_WORKING_DRAFT_VISIBLE_ENTRIES = 4;
+const MAX_WORKING_DRAFT_ASSISTANT_CHARS = 360;
+const MAX_WORKING_DRAFT_ASSISTANT_LINES = 4;
+const MAX_WORKING_DRAFT_BODY_CHARS = 620;
 const MIN_WORKING_DRAFT_BODY_CHARS = 240;
 const WORKING_DRAFT_STREAM_OVERHEAD_CHARS = 96;
 const WORKING_DRAFT_PLACEHOLDER = "Working...";
+const WORKING_DRAFT_HEARTBEAT_MS = 15_000;
 
 function sanitizeProgressMarkdownText(text: string): string {
   return text.replaceAll("`", "'");
@@ -456,6 +457,35 @@ function clipWorkingDraftAssistantPreview(text: string): string {
   return `${text.slice(0, MAX_WORKING_DRAFT_ASSISTANT_CHARS - 3).trimEnd()}...`;
 }
 
+function formatWorkingDraftElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function formatWorkingDraftStatus(params: {
+  startedAtMs: number;
+  hasActivity: boolean;
+  starting?: boolean;
+}): string {
+  if (params.starting) {
+    return "Status: starting turn";
+  }
+  const elapsed = formatWorkingDraftElapsed(Date.now() - params.startedAtMs);
+  return params.hasActivity
+    ? `Status: still working (${elapsed})`
+    : `Status: still working (${elapsed}); waiting for run events`;
+}
+
 function normalizeWorkingDraftAssistantLines(text: string): string[] {
   const normalized = sanitizeWorkingDraftLogText(text);
   if (!normalized) {
@@ -501,6 +531,18 @@ function compactWorkingDraftAssistantLines(lines: string[]): string {
       ? lines
       : [...lines.slice(0, 2), "...", ...lines.slice(-(MAX_WORKING_DRAFT_ASSISTANT_LINES - 3))];
   return clipWorkingDraftAssistantPreview(compactLines.join("\n").trim());
+}
+
+function shouldShowWorkingDraftAssistantEntry(text: string): boolean {
+  const normalized = sanitizeWorkingDraftLogText(text);
+  if (!normalized) {
+    return false;
+  }
+  const unfenced = normalized
+    .replace(/^```[A-Za-z0-9_-]*\n/u, "")
+    .replace(/\n```$/u, "")
+    .trim();
+  return /^WORKING DRAFT\b/iu.test(unfenced);
 }
 
 function isWorkingDraftPayloadText(text: string | undefined): boolean {
@@ -873,6 +915,8 @@ export const dispatchTelegramMessage = async ({
   let workingDraftEntrySequence = 0;
   let lastWorkingDraftAnswerText = "";
   let lastWorkingDraftReasoningText = "";
+  const workingDraftStartedAtMs = Date.now();
+  let workingDraftHeartbeat: ReturnType<typeof setInterval> | undefined;
   const workingDraftTracePath =
     streamMode === "progress" && answerLane.stream
       ? resolveWorkingDraftTracePath({
@@ -911,7 +955,8 @@ export const dispatchTelegramMessage = async ({
   const trimWorkingDraftEntries = () => {
     while (workingDraftLogEntries.length > MAX_WORKING_DRAFT_VISIBLE_ENTRIES) {
       const removableIndex = workingDraftLogEntries.findIndex(
-        (entry) => entry.key !== "answer:draft" && entry.key !== "reasoning:draft",
+        (entry) =>
+          entry.key !== "status" && entry.key !== "answer:draft" && entry.key !== "reasoning:draft",
       );
       workingDraftLogEntries.splice(removableIndex >= 0 ? removableIndex : 0, 1);
     }
@@ -953,6 +998,9 @@ export const dispatchTelegramMessage = async ({
     laneName: LaneName;
     text: string;
   }): boolean => {
+    if (params.laneName === "answer" && !shouldShowWorkingDraftAssistantEntry(params.text)) {
+      return false;
+    }
     const incoming = normalizeWorkingDraftAssistantLines(params.text);
     if (incoming.length === 0) {
       return false;
@@ -973,9 +1021,49 @@ export const dispatchTelegramMessage = async ({
     const label = params.laneName === "reasoning" ? "Reasoning" : "Draft";
     return upsertWorkingDraftEntry(`${params.laneName}:draft`, `${label}:\n${preview}`);
   };
+  const hasConcreteWorkingDraftEntries = () =>
+    workingDraftLogEntries.some((entry) => entry.key !== "status");
+  const upsertWorkingDraftStatus = (text: string): boolean => {
+    const changed = upsertWorkingDraftEntry("status", text);
+    appendWorkingDraftTrace("status", text);
+    return changed;
+  };
+  const stopWorkingDraftHeartbeat = () => {
+    if (workingDraftHeartbeat === undefined) {
+      return;
+    }
+    clearInterval(workingDraftHeartbeat);
+    workingDraftHeartbeat = undefined;
+  };
+  const startWorkingDraftHeartbeat = () => {
+    if (workingDraftHeartbeat !== undefined || !answerLane.stream || streamMode !== "progress") {
+      return;
+    }
+    workingDraftHeartbeat = setInterval(() => {
+      void enqueueDraftLaneEvent(async () => {
+        if (!answerLane.stream || streamMode !== "progress" || isDispatchSuperseded()) {
+          return;
+        }
+        const statusText = formatWorkingDraftStatus({
+          startedAtMs: workingDraftStartedAtMs,
+          hasActivity: hasConcreteWorkingDraftEntries(),
+        });
+        if (upsertWorkingDraftStatus(statusText)) {
+          await renderProgressDraft();
+        }
+      });
+    }, WORKING_DRAFT_HEARTBEAT_MS);
+  };
   const ensureWorkingDraftStarted = () => {
     if (workingDraftLogEntries.length === 0) {
-      upsertWorkingDraftEntry("status", WORKING_DRAFT_PLACEHOLDER);
+      upsertWorkingDraftStatus(
+        formatWorkingDraftStatus({
+          startedAtMs: workingDraftStartedAtMs,
+          hasActivity: false,
+          starting: true,
+        }),
+      );
+      startWorkingDraftHeartbeat();
     }
   };
   const visibleWorkingDraftEntries = () => {
@@ -1948,6 +2036,7 @@ export const dispatchTelegramMessage = async ({
       dispatchError = err;
       runtime.error?.(danger(`telegram dispatch failed: ${String(err)}`));
     } finally {
+      stopWorkingDraftHeartbeat();
       await draftLaneEventQueue;
       await workingDraftTraceQueue;
       const recoveredProgressFinal =

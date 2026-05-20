@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Telegram/streaming: keep progress working drafts compact and honest by replacing frozen placeholder text with elapsed status heartbeats, creating the referenced trace log as soon as the draft appears, and hiding raw assistant answer deltas unless they are structured `WORKING DRAFT` updates.
 - Telegram/streaming: recover a separate final reply when a completed answer streams through the progress working-draft lane and ends with the operator `END` marker.
 - Telegram/streaming: retain accumulated working-draft details across progress preview edits and fold model-emitted `WORKING DRAFT` payloads back into the live draft panel instead of sending extra quote-reply cards.
 - Telegram/streaming: keep progress working-draft previews out of Telegram reply quotes so each draft bubble stays compact while final replies still preserve normal reply targeting.

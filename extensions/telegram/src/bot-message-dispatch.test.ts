@@ -1361,7 +1361,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     expect(draftStream.update).toHaveBeenCalledWith(
-      expect.stringMatching(workingDraftRegex("Working\\.\\.\\.")),
+      expect.stringMatching(workingDraftRegex("Status: starting turn")),
     );
     expect(draftStream.flush).toHaveBeenCalled();
     expect(draftStream.discard).toHaveBeenCalledTimes(1);
@@ -1369,7 +1369,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(deliverReplies).not.toHaveBeenCalled();
   });
 
-  it("retains streamed assistant draft details in the progress working draft", async () => {
+  it("does not present raw assistant answer deltas as progress thoughts", async () => {
     const draftStream = createSequencedDraftStream(2001);
     createTelegramDraftStream.mockReturnValue(draftStream);
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
@@ -1390,10 +1390,10 @@ describe("dispatchTelegramMessage draft streaming", () => {
       telegramCfg: { streaming: { mode: "progress", progress: { label: "Shelling" } } },
     });
 
-    expect(draftStream.update).toHaveBeenCalledWith(
+    expect(draftStream.update).not.toHaveBeenCalledWith(
       expect.stringContaining("Draft:\nI found the migration note in setup.md."),
     );
-    expect(draftStream.update).toHaveBeenCalledWith(
+    expect(draftStream.update).not.toHaveBeenCalledWith(
       expect.stringContaining("The important detail is rollback flag X."),
     );
     expect(draftStream.update).not.toHaveBeenCalledWith(
