@@ -1405,7 +1405,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(deliverReplies).not.toHaveBeenCalled();
   });
 
-  it("terminalizes progress drafts when message-tool-only turns send no visible reply", async () => {
+  it("terminalizes progress drafts neutrally when message-tool-only turns send no draft final", async () => {
     const draftStream = createSequencedDraftStream(2001);
     createTelegramDraftStream.mockReturnValue(draftStream);
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
@@ -1428,9 +1428,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
     expect(draftStream.update).toHaveBeenCalledWith(
       expect.stringMatching(
-        workingDraftRegex(
-          "Status: finished without visible reply \\([0-9]+s\\); message tool did not send",
-        ),
+        workingDraftRegex("Status: finished \\([0-9]+s\\); final delivery handled outside draft"),
       ),
     );
     expect(draftStream.flush).toHaveBeenCalled();

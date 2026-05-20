@@ -1414,7 +1414,7 @@ export const dispatchTelegramMessage = async ({
     const terminalStatus =
       dispatchError == null
         ? suppressSilentReplyFallback
-          ? `Status: finished without visible reply (${elapsed}); message tool did not send`
+          ? `Status: finished (${elapsed}); final delivery handled outside draft`
           : `Status: stopped without final reply (${elapsed}); check log and retry`
         : `Status: failed before final reply (${elapsed}); check log and retry`;
     if (upsertWorkingDraftStatus(terminalStatus)) {
