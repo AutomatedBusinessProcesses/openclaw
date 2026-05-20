@@ -1480,6 +1480,46 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(sentTexts).toEqual(["Final summary.\nEND"]);
   });
 
+  it("recovers a separate final when the assistant finishes inside the progress draft lane", async () => {
+    const draftStream = createSequencedDraftStream(2001);
+    createTelegramDraftStream.mockReturnValue(draftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
+      await replyOptions?.onReplyStart?.();
+      await replyOptions?.onPartialReply?.({
+        text: [
+          "WORKING DRAFT",
+          "- Constraint: max power under $500 all-in",
+          "- GPU options: K80 and P40",
+          "Here's the answer:",
+          "",
+          "## Most Powerful Machine Under $500",
+          "Verdict: buy the X10DRi-T4+ build.",
+          "END",
+        ].join("\n"),
+      });
+      return { queuedFinal: true };
+    });
+
+    await dispatchWithContext({
+      context: createContext(),
+      streamMode: "progress",
+      telegramCfg: { streaming: { mode: "progress", progress: { label: "Working" } } },
+    });
+
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringContaining("- Constraint: max power under $500 all-in"),
+    );
+    expect(draftStream.discard).toHaveBeenCalledTimes(1);
+    const sentTexts = deliverReplies.mock.calls.flatMap((call: unknown[]) =>
+      ((call[0] as { replies?: Array<{ text?: string }> }).replies ?? []).map(
+        (reply) => reply.text ?? "",
+      ),
+    );
+    expect(sentTexts).toEqual([
+      "## Most Powerful Machine Under $500\nVerdict: buy the X10DRi-T4+ build.\nEND",
+    ]);
+  });
+
   it("keeps Telegram progress working drafts compact without raw labels", async () => {
     const draftStream = createSequencedDraftStream(2001);
     createTelegramDraftStream.mockReturnValue(draftStream);

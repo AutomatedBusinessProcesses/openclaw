@@ -515,6 +515,27 @@ function isWorkingDraftPayloadText(text: string | undefined): boolean {
   return /^WORKING DRAFT\b/iu.test(unfenced);
 }
 
+function recoverFinalAnswerFromWorkingDraftText(text: string): string | undefined {
+  const normalized = sanitizeWorkingDraftLogText(text);
+  if (!normalized || !/\bEND\s*$/iu.test(normalized)) {
+    return undefined;
+  }
+  const unfenced = normalized
+    .replace(/^```[A-Za-z0-9_-]*\n/u, "")
+    .replace(/\n```$/u, "")
+    .trim();
+  const withoutDraftHeader = unfenced.replace(/^WORKING DRAFT\b\s*/iu, "").trim();
+  const answerMarker =
+    /(?:^|\n)\s*(?:Here(?:'s| is)\s+(?:the\s+)?answer|Final(?:\s+(?:answer|summary))?)\s*:\s*/iu.exec(
+      withoutDraftHeader,
+    );
+  if (!answerMarker) {
+    return undefined;
+  }
+  const candidate = withoutDraftHeader.slice(answerMarker.index + answerMarker[0].length).trim();
+  return candidate || undefined;
+}
+
 function resolveHomePath(input: string): string {
   if (input === "~") {
     return os.homedir();
@@ -1929,6 +1950,20 @@ export const dispatchTelegramMessage = async ({
     } finally {
       await draftLaneEventQueue;
       await workingDraftTraceQueue;
+      const recoveredProgressFinal =
+        streamMode === "progress" &&
+        !isDispatchSuperseded() &&
+        !answerLane.finalized &&
+        !suppressSilentReplyFallback &&
+        !deliveryState.snapshot().delivered
+          ? recoverFinalAnswerFromWorkingDraftText(lastWorkingDraftAnswerText)
+          : undefined;
+      if (recoveredProgressFinal) {
+        await deliverProgressModeFinalAnswer(
+          { text: recoveredProgressFinal },
+          recoveredProgressFinal,
+        );
+      }
       progressDraftGate.cancel();
       const lanesToCleanup: Array<{ laneName: LaneName; lane: DraftLaneState }> = [
         { laneName: "answer", lane: answerLane },
