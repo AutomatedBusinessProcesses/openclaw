@@ -43,6 +43,8 @@ const CHARS_PER_TOKEN_ESTIMATE = 4;
 const MAX_ADAPTIVE_READ_PAGES = 4;
 
 type OpenClawReadToolOptions = {
+  root?: string;
+  containerWorkdir?: string;
   modelContextWindowTokens?: number;
   imageSanitization?: ImageSanitizationLimits;
 };
@@ -55,6 +57,7 @@ type ReadTruncationDetails = {
 
 const READ_CONTINUATION_NOTICE_RE =
   /\n\n\[(?:Showing lines [^\]]*?Use offset=\d+ to continue\.|\d+ more lines in file\. Use offset=\d+ to continue\.)\]\s*$/;
+const READ_DIRECTORY_MAX_ENTRIES = 200;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -193,6 +196,93 @@ function stripReadTruncationContentDetails(
     details: {
       ...detailsRecord,
       truncation: restTruncation,
+    },
+  };
+}
+
+function isDirectoryReadError(error: unknown): boolean {
+  const err = error as NodeJS.ErrnoException | undefined;
+  if (err?.code === "EISDIR") {
+    return true;
+  }
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+  return Boolean(
+    message && /(?:EISDIR|illegal operation on a directory|is a directory)/i.test(message),
+  );
+}
+
+function classifyDirentType(entry: { isDirectory(): boolean; isSymbolicLink(): boolean }) {
+  if (entry.isDirectory()) {
+    return "directory" as const;
+  }
+  if (entry.isSymbolicLink()) {
+    return "symlink" as const;
+  }
+  return "file" as const;
+}
+
+function formatDirectoryEntry(entry: {
+  name: string;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+}) {
+  const type = classifyDirentType(entry);
+  const suffix = type === "directory" ? "/" : "";
+  return `${type.padEnd(9)} ${entry.name}${suffix}`;
+}
+
+async function buildDirectoryReadResult(params: {
+  pathParam: string;
+  options?: OpenClawReadToolOptions;
+}): Promise<AgentToolResult<unknown>> {
+  const root = params.options?.root;
+  if (!root) {
+    throw new Error(`read: ${params.pathParam} is a directory. Use a directory listing tool.`);
+  }
+  const resolvedPath = resolveToolPathAgainstWorkspaceRoot({
+    filePath: params.pathParam,
+    root,
+    containerWorkdir: params.options?.containerWorkdir,
+  });
+  const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
+  const sortedEntries = entries.toSorted((a, b) => {
+    const aType = classifyDirentType(a);
+    const bType = classifyDirentType(b);
+    if (aType !== bType) {
+      if (aType === "directory") {
+        return -1;
+      }
+      if (bType === "directory") {
+        return 1;
+      }
+    }
+    return a.name.localeCompare(b.name);
+  });
+  const visibleEntries = sortedEntries.slice(0, READ_DIRECTORY_MAX_ENTRIES);
+  const lines = visibleEntries.map(formatDirectoryEntry);
+  if (lines.length === 0) {
+    lines.push("(empty directory)");
+  }
+  const truncated = sortedEntries.length > visibleEntries.length;
+  if (truncated) {
+    lines.push(
+      `[Showing ${visibleEntries.length} of ${sortedEntries.length} entries. Read a more specific subdirectory to continue.]`,
+    );
+  }
+  const text = [`Directory listing for ${params.pathParam || "."}`, "", ...lines].join("\n");
+  return {
+    content: [{ type: "text", text }] as unknown as AgentToolResult<unknown>["content"],
+    details: {
+      kind: "directory",
+      path: params.pathParam,
+      resolvedPath,
+      totalEntries: sortedEntries.length,
+      truncated,
+      entries: visibleEntries.map((entry) => ({
+        name: entry.name,
+        type: classifyDirentType(entry),
+      })),
     },
   };
 }
@@ -621,6 +711,7 @@ export function createSandboxedReadTool(params: SandboxToolParams) {
     operations: createSandboxReadOperations(params),
   }) as unknown as AnyAgentTool;
   return createOpenClawReadTool(base, {
+    root: params.root,
     modelContextWindowTokens: params.modelContextWindowTokens,
     imageSanitization: params.imageSanitization,
   });
@@ -672,14 +763,22 @@ export function createOpenClawReadTool(
     execute: async (toolCallId, params, signal) => {
       const record = getToolParamsRecord(params);
       assertRequiredParams(record, REQUIRED_PARAM_GROUPS.read, base.name);
-      const result = await executeReadWithAdaptivePaging({
-        base,
-        toolCallId,
-        args: record ?? {},
-        signal,
-        maxBytes: resolveAdaptiveReadMaxBytes(options),
-      });
       const filePath = typeof record?.path === "string" ? record.path : "<unknown>";
+      let result: AgentToolResult<unknown>;
+      try {
+        result = await executeReadWithAdaptivePaging({
+          base,
+          toolCallId,
+          args: record ?? {},
+          signal,
+          maxBytes: resolveAdaptiveReadMaxBytes(options),
+        });
+      } catch (error) {
+        if (!isDirectoryReadError(error)) {
+          throw error;
+        }
+        result = await buildDirectoryReadResult({ pathParam: filePath, options });
+      }
       const strippedDetailsResult = stripReadTruncationContentDetails(result);
       const normalizedResult = await normalizeReadImageResult(strippedDetailsResult, filePath);
       return sanitizeToolResultImages(

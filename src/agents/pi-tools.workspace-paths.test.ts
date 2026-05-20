@@ -149,6 +149,25 @@ describe("workspace path resolution", () => {
     });
   });
 
+  it("returns a directory listing when read targets a directory", async () => {
+    await withTempDir("openclaw-ws-", async (workspaceDir) => {
+      await fs.mkdir(path.join(workspaceDir, "tasks", "nested"), { recursive: true });
+      await fs.writeFile(path.join(workspaceDir, "tasks", "status.md"), "done", "utf8");
+      await fs.writeFile(path.join(workspaceDir, "tasks", "notes.txt"), "note", "utf8");
+
+      const tools = createOpenClawCodingTools({ workspaceDir });
+      const { readTool } = expectReadWriteEditTools(tools);
+
+      const result = await readTool.execute("ws-read-dir", { path: "tasks" });
+      const text = getTextContent(result);
+
+      expect(text).toContain("Directory listing for tasks");
+      expect(text).toContain("directory nested/");
+      expect(text).toContain("file      notes.txt");
+      expect(text).toContain("file      status.md");
+    });
+  });
+
   it("defaults exec cwd to workspaceDir when workdir is omitted", async () => {
     await withTempDir("openclaw-ws-", async (workspaceDir) => {
       const execTool = createExecTool(workspaceDir);
