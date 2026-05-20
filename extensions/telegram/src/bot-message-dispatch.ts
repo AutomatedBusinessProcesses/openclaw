@@ -1386,6 +1386,40 @@ export const dispatchTelegramMessage = async ({
   let hadErrorReplyFailureOrSkip = false;
   let isFirstTurnInSession = false;
   let dispatchError: unknown;
+  const finishProgressDraftWithoutFinal = async () => {
+    if (
+      streamMode !== "progress" ||
+      isDispatchSuperseded() ||
+      answerLane.finalized ||
+      answerLane.retained ||
+      suppressSilentReplyFallback ||
+      deliveryState.snapshot().delivered
+    ) {
+      return;
+    }
+    const stream = answerLane.stream;
+    if (!stream) {
+      return;
+    }
+    const hasVisibleDraft =
+      typeof stream.messageId() === "number" ||
+      typeof stream.visibleSinceMs?.() === "number" ||
+      stream.sendMayHaveLanded?.() === true ||
+      answerLane.hasStreamedMessage ||
+      answerLane.lastPartialText.trim().length > 0 ||
+      (stream.previewRevision?.() ?? 0) > 0;
+    if (!hasVisibleDraft) {
+      return;
+    }
+    const elapsed = formatWorkingDraftElapsed(Date.now() - workingDraftStartedAtMs);
+    const terminalStatus =
+      dispatchError == null
+        ? `Status: stopped without final reply (${elapsed}); check log and retry`
+        : `Status: failed before final reply (${elapsed}); check log and retry`;
+    if (upsertWorkingDraftStatus(terminalStatus)) {
+      await renderProgressDraft({ flush: true });
+    }
+  };
 
   try {
     const sticker = ctxPayload.Sticker;
@@ -2052,6 +2086,8 @@ export const dispatchTelegramMessage = async ({
           { text: recoveredProgressFinal },
           recoveredProgressFinal,
         );
+      } else {
+        await finishProgressDraftWithoutFinal();
       }
       progressDraftGate.cancel();
       const lanesToCleanup: Array<{ laneName: LaneName; lane: DraftLaneState }> = [

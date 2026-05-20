@@ -1363,6 +1363,11 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(draftStream.update).toHaveBeenCalledWith(
       expect.stringMatching(workingDraftRegex("Status: starting turn")),
     );
+    expect(draftStream.update).toHaveBeenCalledWith(
+      expect.stringMatching(
+        workingDraftRegex("Status: stopped without final reply \\([0-9]+s\\); check log and retry"),
+      ),
+    );
     expect(draftStream.flush).toHaveBeenCalled();
     expect(draftStream.discard).toHaveBeenCalledTimes(1);
     expect(draftStream.clear).not.toHaveBeenCalled();
